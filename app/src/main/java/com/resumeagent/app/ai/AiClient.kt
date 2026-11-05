@@ -117,6 +117,7 @@ ${revisionInstruction.ifBlank { "无额外返修要求，按当前诊断完整�
                     content = content,
                     changeNote = FactGuard.sanitize(item.optString("changeNote")),
                     benefit = FactGuard.sanitize(item.optString("benefit")),
+                    originalContent = FactGuard.sanitize(item.optString("originalContent")),
                     sourceEvidence = FactGuard.sanitize(item.optString("sourceEvidence"))
                 ))
             }
@@ -516,6 +517,7 @@ traceability 必须为每一句包含数字、职责边界或成果的修订表�
       "content":"只包含可交付的简历正文",
       "changeNote":"只说明调整语序、删空话或正式化表达",
       "benefit":"这次调整对清晰度、真实度或可读性的具体收益，不得夸大",
+      "originalContent":"该章节对应的原简历完整原文；必须逐字摘自输入，不得改写",
       "sourceEvidence":"对应原文短句；没有则留空"
     }
   ],

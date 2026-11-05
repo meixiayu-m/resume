@@ -137,6 +137,16 @@ object FactGuard {
                 content = content,
                 changeNote = sanitize(section.changeNote),
                 benefit = sanitize(section.benefit),
+                originalContent = sanitize(section.originalContent).let { original ->
+                    if (
+                        original.isNotBlank() &&
+                        normalizedSource.contains(normalizeEvidence(original))
+                    ) {
+                        original
+                    } else {
+                        sourceEvidence
+                    }
+                },
                 sourceEvidence = sourceEvidence,
                 verificationStatus = risks.joinToString("；"),
                 accepted = section.accepted && risks.isEmpty()

@@ -62,9 +62,11 @@ data class DraftSection(
     val content: String,
     val changeNote: String = "",
     val benefit: String = "",
+    val originalContent: String = "",
     val sourceEvidence: String = "",
     val verificationStatus: String = "",
-    val accepted: Boolean = true
+    val accepted: Boolean = true,
+    val keepOriginal: Boolean = false
 )
 
 data class TraceabilityEntry(
@@ -151,7 +153,15 @@ data class ResumeProject(
     val updatedAt: Long = System.currentTimeMillis()
 ) {
     val acceptedSections: List<DraftSection>
-        get() = draftSections.filter { it.accepted }
+        get() = draftSections.filter { it.accepted }.map { section ->
+            if (section.keepOriginal) {
+                section.copy(
+                    content = section.originalContent.ifBlank { section.sourceEvidence }
+                )
+            } else {
+                section
+            }
+        }
 }
 
 enum class AiProviderId {

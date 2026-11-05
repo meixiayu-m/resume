@@ -47,8 +47,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -976,7 +976,9 @@ private fun RewriteTab(
                             project.activeVersionId == project.finalVersionId,
                         canMoveUp = index > 0,
                         canMoveDown = index < project.draftSections.lastIndex,
-                        onToggle = { viewModel.toggleSection(section.id) },
+                        onDecision = { accepted, keepOriginal ->
+                            viewModel.setSectionDecision(section.id, accepted, keepOriginal)
+                        },
                         onSave = { viewModel.updateSection(section.id, it) },
                         onMoveUp = { viewModel.moveSection(section.id, -1) },
                         onMoveDown = { viewModel.moveSection(section.id, 1) }
@@ -1010,7 +1012,7 @@ private fun SectionEditorCard(
     locked: Boolean,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
-    onToggle: () -> Unit,
+    onDecision: (Boolean, Boolean) -> Unit,
     onSave: (String) -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit
@@ -1039,20 +1041,17 @@ private fun SectionEditorCard(
     ) {
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = section.accepted,
-                    onCheckedChange = { onToggle() },
-                    enabled = !locked
-                )
                 Column(Modifier.weight(1f)) {
                     Text(section.title, fontWeight = FontWeight.Bold)
                     Text(
                         if (locked) {
                             "最终版已锁定"
-                        } else if (section.accepted) {
-                            "将写入交付稿"
+                        } else if (!section.accepted) {
+                            "不写入交付版"
+                        } else if (section.keepOriginal) {
+                            "使用原简历内容"
                         } else {
-                            "已排除"
+                            "使用 AI 改写内容"
                         },
                         color = if (section.accepted) Moss else Muted,
                         fontSize = 11.sp
@@ -1064,6 +1063,32 @@ private fun SectionEditorCard(
                 IconButton(onClick = onMoveDown, enabled = canMoveDown && !locked) {
                     Icon(Icons.Outlined.ArrowDownward, contentDescription = "下移")
                 }
+            }
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                FilterChip(
+                    selected = section.accepted && !section.keepOriginal,
+                    onClick = { onDecision(true, false) },
+                    enabled = !locked,
+                    label = { Text("采用改写") }
+                )
+                FilterChip(
+                    selected = section.accepted && section.keepOriginal,
+                    onClick = { onDecision(true, true) },
+                    enabled = !locked &&
+                        (section.originalContent.isNotBlank() || section.sourceEvidence.isNotBlank()),
+                    label = { Text("保留原文") }
+                )
+                FilterChip(
+                    selected = !section.accepted,
+                    onClick = { onDecision(false, false) },
+                    enabled = !locked,
+                    label = { Text("不导出") }
+                )
             }
             if (section.changeNote.isNotBlank()) {
                 Surface(
@@ -1127,7 +1152,10 @@ private fun SectionEditorCard(
                         Modifier.padding(10.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        TextDiffEngine.compare(section.sourceEvidence, content)
+                        TextDiffEngine.compare(
+                            section.originalContent.ifBlank { section.sourceEvidence },
+                            content
+                        )
                             .take(30)
                             .forEach { line ->
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1158,15 +1186,32 @@ private fun SectionEditorCard(
                     }
                 }
             }
-            OutlinedTextField(
-                value = content,
-                onValueChange = { content = it },
-                enabled = !locked,
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 5,
-                maxLines = 30,
-                shape = RoundedCornerShape(12.dp)
-            )
+            if (section.accepted && section.keepOriginal) {
+                Surface(
+                    color = Color(0xFFE8F1ED),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("最终稿将使用以下原文", color = Moss, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            section.originalContent.ifBlank { section.sourceEvidence },
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp
+                        )
+                    }
+                }
+            } else {
+                OutlinedTextField(
+                    value = content,
+                    onValueChange = { content = it },
+                    enabled = !locked && section.accepted,
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 5,
+                    maxLines = 30,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
             if (content.contains("待补充")) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -1183,11 +1228,12 @@ private fun SectionEditorCard(
                 OutlinedButton(
                     onClick = { content = section.content },
                     modifier = Modifier.weight(1f),
-                    enabled = !locked
-                ) { Text("恢复内容") }
+                    enabled = !locked && section.accepted && !section.keepOriginal
+                ) { Text("恢复 AI 稿") }
                 Button(
                     onClick = { onSave(content) },
-                    enabled = !locked && content != section.content,
+                    enabled = !locked && section.accepted && !section.keepOriginal &&
+                        content != section.content,
                     modifier = Modifier.weight(1f)
                 ) { Text("保存修改") }
             }

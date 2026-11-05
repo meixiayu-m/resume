@@ -30,6 +30,7 @@ class ProjectJsonTest {
                     title = "工作经历",
                     content = "参与需求分析。",
                     benefit = "职责边界保持真实",
+                    originalContent = "参与需求分析。",
                     sourceEvidence = "参与需求分析。"
                 )
             ),
@@ -68,6 +69,7 @@ class ProjectJsonTest {
         assertEquals("active", decoded.activeVersionId)
         assertEquals("active", decoded.finalVersionId)
         assertEquals("职责边界保持真实", decoded.draftSections.single().benefit)
+        assertEquals("参与需求分析。", decoded.draftSections.single().originalContent)
         assertTrue(decoded.draftSections.single().sourceEvidence.isNotBlank())
     }
 }

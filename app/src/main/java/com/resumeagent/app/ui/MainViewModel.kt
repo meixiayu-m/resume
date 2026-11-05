@@ -491,11 +491,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         persist(syncActiveVersion(updated), message = null)
     }
 
-    fun toggleSection(sectionId: String) {
+    fun setSectionDecision(sectionId: String, accepted: Boolean, keepOriginal: Boolean) {
         val project = _state.value.selectedProject ?: return
         val updated = project.copy(
             draftSections = project.draftSections.map {
-                if (it.id == sectionId) it.copy(accepted = !it.accepted) else it
+                if (it.id == sectionId) {
+                    it.copy(
+                        accepted = accepted,
+                        keepOriginal = accepted && keepOriginal
+                    )
+                } else {
+                    it
+                }
             },
             updatedAt = System.currentTimeMillis()
         )

@@ -159,9 +159,11 @@ object ProjectJson {
         .put("content", section.content)
         .put("changeNote", section.changeNote)
         .put("benefit", section.benefit)
+        .put("originalContent", section.originalContent)
         .put("sourceEvidence", section.sourceEvidence)
         .put("verificationStatus", section.verificationStatus)
         .put("accepted", section.accepted)
+        .put("keepOriginal", section.keepOriginal)
 
     fun decodeSection(json: JSONObject): DraftSection = DraftSection(
         id = json.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
@@ -169,9 +171,11 @@ object ProjectJson {
         content = json.optString("content"),
         changeNote = json.optString("changeNote"),
         benefit = json.optString("benefit"),
+        originalContent = json.optString("originalContent"),
         sourceEvidence = json.optString("sourceEvidence"),
         verificationStatus = json.optString("verificationStatus"),
-        accepted = json.optBoolean("accepted", true)
+        accepted = json.optBoolean("accepted", true),
+        keepOriginal = json.optBoolean("keepOriginal", false)
     )
 
     fun encodeTraceability(entry: TraceabilityEntry): JSONObject = JSONObject()
