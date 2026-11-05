@@ -128,6 +128,7 @@ object FactGuard {
             section.copy(
                 content = content,
                 changeNote = sanitize(section.changeNote),
+                benefit = sanitize(section.benefit),
                 sourceEvidence = sourceEvidence,
                 verificationStatus = risks.joinToString("；"),
                 accepted = section.accepted && risks.isEmpty()

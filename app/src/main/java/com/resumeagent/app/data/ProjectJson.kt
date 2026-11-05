@@ -1,12 +1,17 @@
 package com.resumeagent.app.data
 
 import com.resumeagent.app.domain.DraftSection
+import com.resumeagent.app.domain.FactClaim
 import com.resumeagent.app.domain.IssueSeverity
+import com.resumeagent.app.domain.OptimizationMode
 import com.resumeagent.app.domain.ProjectStage
+import com.resumeagent.app.domain.ProjectVersion
 import com.resumeagent.app.domain.ResumeAnalysis
 import com.resumeagent.app.domain.ResumeIssue
 import com.resumeagent.app.domain.ResumeProject
+import com.resumeagent.app.domain.RuleCheck
 import com.resumeagent.app.domain.ScoreDimension
+import com.resumeagent.app.domain.SeniorityLevel
 import com.resumeagent.app.domain.TraceabilityEntry
 import org.json.JSONArray
 import org.json.JSONObject
@@ -18,11 +23,24 @@ object ProjectJson {
         .put("company", project.company)
         .put("targetRole", project.targetRole)
         .put("industry", project.industry)
+        .put("clientName", project.clientName)
+        .put("dueDate", project.dueDate)
+        .put("orderNote", project.orderNote)
+        .put("optimizationMode", project.optimizationMode.name)
+        .put("seniorityLevel", project.seniorityLevel.name)
         .put("resumeFileName", project.resumeFileName)
         .put("localResumePath", project.localResumePath)
         .put("resumeText", project.resumeText)
+        .put("jobDescriptionFileName", project.jobDescriptionFileName)
+        .put("localJobDescriptionPath", project.localJobDescriptionPath)
         .put("jobDescription", project.jobDescription)
         .put("supplements", project.supplements)
+        .put("factLedger", JSONArray().apply {
+            project.factLedger.forEach { put(encodeFact(it)) }
+        })
+        .put("ruleChecks", JSONArray().apply {
+            project.ruleChecks.forEach { put(encodeRuleCheck(it)) }
+        })
         .put("analysis", project.analysis?.let(::encodeAnalysis))
         .put("draftSections", JSONArray().apply {
             project.draftSections.forEach { put(encodeSection(it)) }
@@ -31,6 +49,13 @@ object ProjectJson {
         .put("traceability", JSONArray().apply {
             project.traceability.forEach { put(encodeTraceability(it)) }
         })
+        .put("secondReviewFindings", JSONArray(project.secondReviewFindings))
+        .put("secondReviewProvider", project.secondReviewProvider)
+        .put("versions", JSONArray().apply {
+            project.versions.forEach { put(encodeVersion(it)) }
+        })
+        .put("activeVersionId", project.activeVersionId)
+        .put("finalVersionId", project.finalVersionId)
         .put("stage", project.stage.name)
         .put("createdAt", project.createdAt)
         .put("updatedAt", project.updatedAt)
@@ -44,15 +69,34 @@ object ProjectJson {
             company = json.optString("company"),
             targetRole = json.optString("targetRole"),
             industry = json.optString("industry"),
+            clientName = json.optString("clientName"),
+            dueDate = json.optString("dueDate"),
+            orderNote = json.optString("orderNote"),
+            optimizationMode = json.optString("optimizationMode")
+                .toEnum(OptimizationMode.TARGETED),
+            seniorityLevel = json.optString("seniorityLevel")
+                .toEnum(SeniorityLevel.AUTO),
             resumeFileName = json.optString("resumeFileName"),
             localResumePath = json.optString("localResumePath").takeIf { it.isNotBlank() && it != "null" },
             resumeText = json.optString("resumeText"),
+            jobDescriptionFileName = json.optString("jobDescriptionFileName"),
+            localJobDescriptionPath = json.optString("localJobDescriptionPath")
+                .takeIf { it.isNotBlank() && it != "null" },
             jobDescription = json.optString("jobDescription"),
             supplements = json.optString("supplements"),
+            factLedger = json.optJSONArray("factLedger").toObjectList(::decodeFact),
+            ruleChecks = json.optJSONArray("ruleChecks").toObjectList(::decodeRuleCheck),
             analysis = json.optJSONObject("analysis")?.let(::decodeAnalysis),
             draftSections = json.optJSONArray("draftSections").toObjectList(::decodeSection),
             verificationChecklist = json.optJSONArray("verificationChecklist").toStringList(),
             traceability = json.optJSONArray("traceability").toObjectList(::decodeTraceability),
+            secondReviewFindings = json.optJSONArray("secondReviewFindings").toStringList(),
+            secondReviewProvider = json.optString("secondReviewProvider"),
+            versions = json.optJSONArray("versions").toObjectList(::decodeVersion),
+            activeVersionId = json.optString("activeVersionId")
+                .takeIf { it.isNotBlank() && it != "null" },
+            finalVersionId = json.optString("finalVersionId")
+                .takeIf { it.isNotBlank() && it != "null" },
             stage = runCatching { ProjectStage.valueOf(json.optString("stage")) }
                 .getOrDefault(ProjectStage.IMPORTED),
             createdAt = json.optLong("createdAt", System.currentTimeMillis()),
@@ -114,6 +158,7 @@ object ProjectJson {
         .put("title", section.title)
         .put("content", section.content)
         .put("changeNote", section.changeNote)
+        .put("benefit", section.benefit)
         .put("sourceEvidence", section.sourceEvidence)
         .put("verificationStatus", section.verificationStatus)
         .put("accepted", section.accepted)
@@ -123,6 +168,7 @@ object ProjectJson {
         title = json.optString("title"),
         content = json.optString("content"),
         changeNote = json.optString("changeNote"),
+        benefit = json.optString("benefit"),
         sourceEvidence = json.optString("sourceEvidence"),
         verificationStatus = json.optString("verificationStatus"),
         accepted = json.optBoolean("accepted", true)
@@ -140,6 +186,70 @@ object ProjectJson {
         sourceEvidence = json.optString("sourceEvidence"),
         status = json.optString("status").ifBlank { "待核实" }
     )
+
+    fun encodeFact(claim: FactClaim): JSONObject = JSONObject()
+        .put("id", claim.id)
+        .put("quote", claim.quote)
+        .put("kind", claim.kind)
+        .put("verified", claim.verified)
+
+    fun decodeFact(json: JSONObject): FactClaim = FactClaim(
+        id = json.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
+        quote = json.optString("quote"),
+        kind = json.optString("kind").ifBlank { "经历" },
+        verified = json.optBoolean("verified", false)
+    )
+
+    fun encodeRuleCheck(check: RuleCheck): JSONObject = JSONObject()
+        .put("name", check.name)
+        .put("passed", check.passed)
+        .put("detail", check.detail)
+
+    fun decodeRuleCheck(json: JSONObject): RuleCheck = RuleCheck(
+        name = json.optString("name"),
+        passed = json.optBoolean("passed", false),
+        detail = json.optString("detail")
+    )
+
+    fun encodeVersion(version: ProjectVersion): JSONObject = JSONObject()
+        .put("id", version.id)
+        .put("label", version.label)
+        .put("instruction", version.instruction)
+        .put("createdAt", version.createdAt)
+        .put("factLedger", JSONArray().apply {
+            version.factLedger.forEach { put(encodeFact(it)) }
+        })
+        .put("ruleChecks", JSONArray().apply {
+            version.ruleChecks.forEach { put(encodeRuleCheck(it)) }
+        })
+        .put("analysis", version.analysis?.let(::encodeAnalysis))
+        .put("draftSections", JSONArray().apply {
+            version.draftSections.forEach { put(encodeSection(it)) }
+        })
+        .put("verificationChecklist", JSONArray(version.verificationChecklist))
+        .put("traceability", JSONArray().apply {
+            version.traceability.forEach { put(encodeTraceability(it)) }
+        })
+        .put("secondReviewFindings", JSONArray(version.secondReviewFindings))
+        .put("secondReviewProvider", version.secondReviewProvider)
+
+    fun decodeVersion(json: JSONObject): ProjectVersion = ProjectVersion(
+        id = json.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
+        label = json.optString("label"),
+        instruction = json.optString("instruction"),
+        createdAt = json.optLong("createdAt", System.currentTimeMillis()),
+        factLedger = json.optJSONArray("factLedger").toObjectList(::decodeFact),
+        ruleChecks = json.optJSONArray("ruleChecks").toObjectList(::decodeRuleCheck),
+        analysis = json.optJSONObject("analysis")?.let(::decodeAnalysis),
+        draftSections = json.optJSONArray("draftSections").toObjectList(::decodeSection),
+        verificationChecklist = json.optJSONArray("verificationChecklist").toStringList(),
+        traceability = json.optJSONArray("traceability").toObjectList(::decodeTraceability),
+        secondReviewFindings = json.optJSONArray("secondReviewFindings").toStringList(),
+        secondReviewProvider = json.optString("secondReviewProvider")
+    )
+
+    private inline fun <reified T : Enum<T>> String.toEnum(fallback: T): T =
+        runCatching { enumValueOf<T>(this) }.getOrDefault(fallback)
 
     private fun <T> JSONArray?.toObjectList(mapper: (JSONObject) -> T): List<T> {
         if (this == null) return emptyList()

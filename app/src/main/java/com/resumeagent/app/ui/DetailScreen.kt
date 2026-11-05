@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -63,10 +64,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -81,18 +84,27 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.resumeagent.app.domain.DraftSection
+import com.resumeagent.app.domain.DiffKind
 import com.resumeagent.app.domain.IssueSeverity
+import com.resumeagent.app.domain.OptimizationMode
 import com.resumeagent.app.domain.ProjectStage
+import com.resumeagent.app.domain.ProjectInput
 import com.resumeagent.app.domain.ResumeAnalysis
 import com.resumeagent.app.domain.ResumeIssue
 import com.resumeagent.app.domain.ResumeProject
+import com.resumeagent.app.domain.SeniorityLevel
+import com.resumeagent.app.domain.TextDiffEngine
 import com.resumeagent.app.export.ExportBundle
 import kotlinx.coroutines.delay
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private const val TAB_SOURCE = "source"
 private const val TAB_ANALYSIS = "analysis"
 private const val TAB_REWRITE = "rewrite"
+private const val TAB_VERSIONS = "versions"
 private const val TAB_EXPORT = "export"
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -112,6 +124,7 @@ fun DetailScreen(
     }
 
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showFinalDeleteDialog by remember { mutableStateOf(false) }
     var tab by rememberSaveable(project.id) {
         mutableStateOf(if (project.analysis == null) TAB_SOURCE else TAB_REWRITE)
     }
@@ -130,7 +143,7 @@ fun DetailScreen(
                 title = {
                     Column {
                         Text(
-                            project.targetRole.ifBlank { "简历任务" },
+                            project.targetRole.ifBlank { project.title.ifBlank { "简历任务" } },
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -183,6 +196,14 @@ fun DetailScreen(
                     viewModel = viewModel,
                     onExport = { tab = TAB_EXPORT }
                 )
+                TAB_VERSIONS -> VersionsTab(
+                    project = project,
+                    viewModel = viewModel,
+                    onContinue = { versionId ->
+                        viewModel.activateVersion(versionId)
+                        tab = TAB_REWRITE
+                    }
+                )
                 TAB_EXPORT -> ExportTab(
                     project = project,
                     export = state.lastExport,
@@ -196,19 +217,43 @@ fun DetailScreen(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("删除这个任务？") },
-            text = { Text("任务记录、原简历副本和导出的中间文件都会被删除，无法恢复。") },
+            title = { Text("准备删除这个简历任务") },
+            text = {
+                Text("删除后可以释放本机空间，但该任务的原简历、诊断、版本历史和导出文件都会消失。")
+            },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteDialog = false
-                    viewModel.deleteProject()
-                    onBack()
+                    showFinalDeleteDialog = true
                 }) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
+                    Text("继续", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) { Text("取消") }
+            }
+        )
+    }
+    if (showFinalDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showFinalDeleteDialog = false },
+            title = { Text("再次确认永久删除") },
+            text = {
+                Text(
+                    "将永久删除该任务的 ${project.versions.size} 个历史版本、原简历副本、JD 文件和已经导出的文件。此操作无法撤销。"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showFinalDeleteDialog = false
+                    viewModel.deleteProject()
+                    onBack()
+                }) {
+                    Text("永久删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFinalDeleteDialog = false }) { Text("保留任务") }
             }
         )
     }
@@ -281,6 +326,7 @@ private fun WorkTabs(
         WorkTab("原简历", selected == TAB_SOURCE) { onSelect(TAB_SOURCE) }
         WorkTab("诊断", selected == TAB_ANALYSIS, enabled = hasAnalysis) { onSelect(TAB_ANALYSIS) }
         WorkTab("改写审核", selected == TAB_REWRITE, enabled = hasDraft) { onSelect(TAB_REWRITE) }
+        WorkTab("版本历史", selected == TAB_VERSIONS, enabled = hasDraft) { onSelect(TAB_VERSIONS) }
         WorkTab("导出", selected == TAB_EXPORT, enabled = hasDraft) { onSelect(TAB_EXPORT) }
     }
 }
@@ -308,6 +354,24 @@ private fun WorkTab(label: String, selected: Boolean, enabled: Boolean = true, o
 @Composable
 private fun SourceTab(project: ResumeProject, viewModel: MainViewModel) {
     val context = LocalContext.current
+    var title by rememberSaveable(project.id, project.stage, project.resumeFileName) {
+        mutableStateOf(project.title)
+    }
+    var clientName by rememberSaveable(project.id, project.stage, project.resumeFileName) {
+        mutableStateOf(project.clientName)
+    }
+    var dueDate by rememberSaveable(project.id, project.stage, project.resumeFileName) {
+        mutableStateOf(project.dueDate)
+    }
+    var orderNote by rememberSaveable(project.id, project.stage, project.resumeFileName) {
+        mutableStateOf(project.orderNote)
+    }
+    var modeName by rememberSaveable(project.id, project.stage) {
+        mutableStateOf(project.optimizationMode.name)
+    }
+    var seniorityName by rememberSaveable(project.id, project.stage) {
+        mutableStateOf(project.seniorityLevel.name)
+    }
     var targetRole by rememberSaveable(project.id, project.stage, project.resumeFileName) {
         mutableStateOf(project.targetRole)
     }
@@ -320,18 +384,51 @@ private fun SourceTab(project: ResumeProject, viewModel: MainViewModel) {
     var resumeText by rememberSaveable(project.id, project.stage, project.resumeFileName) {
         mutableStateOf(project.resumeText)
     }
-    var jobDescription by rememberSaveable(project.id, project.stage, project.resumeFileName) {
+    var jobDescription by rememberSaveable(
+        project.id,
+        project.stage,
+        project.jobDescriptionFileName
+    ) {
         mutableStateOf(project.jobDescription)
     }
     var supplements by rememberSaveable(project.id, project.stage, project.resumeFileName) {
         mutableStateOf(project.supplements)
     }
     var replaceDialog by remember { mutableStateOf(false) }
+    var jdFileDialog by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::replaceResume)
     }
+    val jdPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::replaceJobDescription)
+    }
+    val mode = OptimizationMode.valueOf(modeName)
+    fun currentInput() = ProjectInput(
+        title = title,
+        clientName = clientName,
+        dueDate = dueDate,
+        orderNote = orderNote,
+        targetRole = targetRole,
+        company = company,
+        industry = industry,
+        optimizationMode = mode,
+        seniorityLevel = SeniorityLevel.valueOf(seniorityName),
+        resumeText = resumeText,
+        jobDescription = jobDescription,
+        supplements = supplements
+    )
+    val latestInput by rememberUpdatedState(currentInput())
+    DisposableEffect(project.id) {
+        onDispose { viewModel.autosaveInputs(latestInput) }
+    }
     LaunchedEffect(
         project.id,
+        title,
+        clientName,
+        dueDate,
+        orderNote,
+        modeName,
+        seniorityName,
         targetRole,
         company,
         industry,
@@ -340,14 +437,7 @@ private fun SourceTab(project: ResumeProject, viewModel: MainViewModel) {
         supplements
     ) {
         delay(600)
-        viewModel.autosaveInputs(
-            targetRole,
-            company,
-            industry,
-            resumeText,
-            jobDescription,
-            supplements
-        )
+        viewModel.autosaveInputs(currentInput())
     }
 
     LazyColumn(
@@ -358,12 +448,45 @@ private fun SourceTab(project: ResumeProject, viewModel: MainViewModel) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
+            FormSection("优化方式") {
+                OptimizationModeSelector(mode) { modeName = it.name }
+                Text(
+                    when (mode) {
+                        OptimizationMode.TARGETED -> "分析具体 JD 的岗位匹配和关键词差距。"
+                        OptimizationMode.ROLE_ONLY -> "只有岗位方向，不猜测具体公司的招聘要求。"
+                        OptimizationMode.GENERAL -> "不判断岗位匹配，只优化事实、结构、表达和可读性。"
+                    },
+                    color = Muted,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp
+                )
+            }
+        }
+        item {
+            FormSection("接单信息") {
+                DetailTextField("任务名称", title, { title = it })
+                DetailTextField("客户称呼", clientName, { clientName = it }, "仅保存在本机")
+                DetailTextField("交付日期", dueDate, { dueDate = it }, "例如：2026-11-10")
+                DetailTextField("订单备注", orderNote, { orderNote = it }, "例如：重点核对项目管理经历", minLines = 2)
+            }
+        }
+        item {
             FormSection("岗位信息") {
-                DetailTextField("目标岗位", targetRole, { targetRole = it })
+                if (mode != OptimizationMode.GENERAL) {
+                    DetailTextField(
+                        if (mode == OptimizationMode.TARGETED) "目标岗位" else "岗位方向",
+                        targetRole,
+                        { targetRole = it }
+                    )
+                }
                 SectionCaption("目标公司")
                 DetailTextField("", company, { company = it }, "可空")
                 SectionCaption("行业")
                 DetailTextField("", industry, { industry = it }, "例如：制造业、互联网")
+                SenioritySelector(
+                    selected = SeniorityLevel.valueOf(seniorityName),
+                    onSelect = { seniorityName = it.name }
+                )
             }
         }
         item {
@@ -392,15 +515,28 @@ private fun SourceTab(project: ResumeProject, viewModel: MainViewModel) {
                 )
             }
         }
-        item {
-            FormSection("目标岗位 JD") {
-                DetailTextField(
-                    label = "招聘要求",
-                    value = jobDescription,
-                    onValueChange = { jobDescription = it },
-                    placeholder = "岗位职责、任职要求、加分项…",
-                    minLines = 10
-                )
+        if (mode == OptimizationMode.TARGETED) {
+            item {
+                FormSection("目标岗位 JD") {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            project.jobDescriptionFileName.ifBlank { "未导入 JD 文件" },
+                            modifier = Modifier.weight(1f),
+                            color = Muted,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        TextButton(onClick = { jdFileDialog = true }) { Text("从文件导入") }
+                    }
+                    DetailTextField(
+                        label = "招聘要求",
+                        value = jobDescription,
+                        onValueChange = { jobDescription = it },
+                        placeholder = "岗位职责、任职要求、加分项…",
+                        minLines = 10
+                    )
+                }
             }
         }
         item {
@@ -422,16 +558,7 @@ private fun SourceTab(project: ResumeProject, viewModel: MainViewModel) {
         }
         item {
             Button(
-                onClick = {
-                    viewModel.saveAndAnalyze(
-                        targetRole,
-                        company,
-                        industry,
-                        resumeText,
-                        jobDescription,
-                        supplements
-                    )
-                },
+                onClick = { viewModel.saveAndAnalyze(currentInput()) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -443,7 +570,11 @@ private fun SourceTab(project: ResumeProject, viewModel: MainViewModel) {
                 Text("保存并开始诊断", fontWeight = FontWeight.Bold)
             }
             Text(
-                if (project.analysis != null) "重新诊断会清除当前 AI 改写稿，但不会删除原简历。" else "诊断会结合岗位 JD 检查每条经历的证据。",
+                if (project.analysis != null) {
+                    "重新诊断会先更新事实账本，并清除当前 AI 改写稿。"
+                } else {
+                    "诊断会先提取事实账本，再根据当前优化方式检查简历。"
+                },
                 modifier = Modifier.padding(top = 8.dp, bottom = 20.dp),
                 color = Muted,
                 fontSize = 12.sp
@@ -474,6 +605,29 @@ private fun SourceTab(project: ResumeProject, viewModel: MainViewModel) {
             }
         )
     }
+    if (jdFileDialog) {
+        AlertDialog(
+            onDismissRequest = { jdFileDialog = false },
+            title = { Text("从文件导入 JD") },
+            text = { Text("支持 DOCX、PDF、TXT 和招聘截图，导入后会覆盖当前 JD 文字。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    jdFileDialog = false
+                    jdPicker.launch(
+                        arrayOf(
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            "application/pdf",
+                            "text/plain",
+                            "image/*"
+                        )
+                    )
+                }) { Text("选择文件") }
+            },
+            dismissButton = {
+                TextButton(onClick = { jdFileDialog = false }) { Text("取消") }
+            }
+        )
+    }
 }
 
 @Composable
@@ -489,7 +643,63 @@ private fun AnalysisTab(project: ResumeProject, onGoRewrite: () -> Unit) {
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        item { ScoreCard(analysis) }
+        item {
+            ScoreCard(
+                analysis,
+                isGeneral = project.optimizationMode == OptimizationMode.GENERAL
+            )
+        }
+        if (project.ruleChecks.isNotEmpty()) {
+            item {
+                AnalysisSection("规则检查") {
+                    project.ruleChecks.forEach { check ->
+                        Row(
+                            Modifier.padding(vertical = 5.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Icon(
+                                if (check.passed) Icons.Outlined.CheckCircle else Icons.Outlined.WarningAmber,
+                                contentDescription = null,
+                                tint = if (check.passed) Moss else Coral,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column {
+                                Text(check.name, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                                Text(check.detail, color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (project.factLedger.isNotEmpty()) {
+            item {
+                AnalysisSection("事实账本") {
+                    Text(
+                        "诊断和改写使用以下原文事实作为依据。这里只提取事实，不补充猜测。",
+                        color = Muted,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp
+                    )
+                    project.factLedger.take(40).forEach { fact ->
+                        Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+                            Text(
+                                fact.id,
+                                color = Moss,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.width(38.dp)
+                            )
+                            Text(fact.quote, fontSize = 12.sp, lineHeight = 18.sp)
+                        }
+                    }
+                    if (project.factLedger.size > 40) {
+                        Text("其余 ${project.factLedger.size - 40} 条已保存，不在此处展开。", color = Muted, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
         item {
             AnalysisSection("匹配优势") {
                 if (analysis.strengths.isEmpty()) {
@@ -596,7 +806,7 @@ private fun AnalysisTab(project: ResumeProject, onGoRewrite: () -> Unit) {
 }
 
 @Composable
-private fun ScoreCard(analysis: ResumeAnalysis) {
+private fun ScoreCard(analysis: ResumeAnalysis, isGeneral: Boolean) {
     Card(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF1D5448)),
         shape = RoundedCornerShape(24.dp)
@@ -617,7 +827,11 @@ private fun ScoreCard(analysis: ResumeAnalysis) {
                             fontSize = 30.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        Text("匹配度", color = Color.White.copy(alpha = 0.65f), fontSize = 10.sp)
+                        Text(
+                            if (isGeneral) "质量评分" else "适配评分",
+                            color = Color.White.copy(alpha = 0.65f),
+                            fontSize = 10.sp
+                        )
                     }
                 }
                 Spacer(Modifier.width(16.dp))
@@ -631,7 +845,7 @@ private fun ScoreCard(analysis: ResumeAnalysis) {
             HorizontalDivider(color = Color.White.copy(alpha = 0.15f))
             analysis.dimensions.forEach { DimensionRow(it.name, it.score, it.detail) }
             Text(
-                "匹配度是内部修改参考，不代表录用概率。",
+                "评分是内部修改参考，不代表录用概率。",
                 color = Color.White.copy(alpha = 0.55f),
                 fontSize = 11.sp
             )
@@ -670,6 +884,10 @@ private fun RewriteTab(
 ) {
     var supplements by rememberSaveable(project.id, project.supplements) {
         mutableStateOf(project.supplements)
+    }
+    val latestSupplements by rememberUpdatedState(supplements)
+    DisposableEffect(project.id) {
+        onDispose { viewModel.autosaveSupplements(latestSupplements) }
     }
     LaunchedEffect(project.id, supplements) {
         delay(600)
@@ -727,10 +945,35 @@ private fun RewriteTab(
                     )
                 }
             }
+            item {
+                AnalysisSection("修改后评价") {
+                    Text(
+                        "本次采用 ${project.acceptedSections.size} 个章节，${project.draftSections.count { it.changeNote.isNotBlank() }} 个章节记录了修改原因，${project.draftSections.count { it.benefit.isNotBlank() }} 个章节记录了修改收益。",
+                        color = Ink,
+                        fontSize = 13.sp,
+                        lineHeight = 20.sp
+                    )
+                    Text(
+                        "剩余核实项 ${project.verificationChecklist.size} 条，第二模型审核 ${project.secondReviewFindings.size} 条。",
+                        color = if (
+                            project.verificationChecklist.isEmpty() &&
+                            project.secondReviewFindings.isEmpty()
+                        ) {
+                            Moss
+                        } else {
+                            Coral
+                        },
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp
+                    )
+                }
+            }
             project.draftSections.forEachIndexed { index, section ->
                 item(key = section.id) {
                     SectionEditorCard(
                         section = section,
+                        locked = project.activeVersionId != null &&
+                            project.activeVersionId == project.finalVersionId,
                         canMoveUp = index > 0,
                         canMoveDown = index < project.draftSections.lastIndex,
                         onToggle = { viewModel.toggleSection(section.id) },
@@ -764,6 +1007,7 @@ private fun RewriteTab(
 @Composable
 private fun SectionEditorCard(
     section: DraftSection,
+    locked: Boolean,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onToggle: () -> Unit,
@@ -772,6 +1016,13 @@ private fun SectionEditorCard(
     onMoveDown: () -> Unit
 ) {
     var content by remember(section.id, section.content) { mutableStateOf(section.content) }
+    var showDiff by remember(section.id) { mutableStateOf(false) }
+    val latestContent by rememberUpdatedState(content)
+    DisposableEffect(section.id) {
+        onDispose {
+            if (latestContent != section.content) onSave(latestContent)
+        }
+    }
     LaunchedEffect(section.id, content) {
         delay(600)
         if (content != section.content) onSave(content)
@@ -788,19 +1039,29 @@ private fun SectionEditorCard(
     ) {
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = section.accepted, onCheckedChange = { onToggle() })
+                Checkbox(
+                    checked = section.accepted,
+                    onCheckedChange = { onToggle() },
+                    enabled = !locked
+                )
                 Column(Modifier.weight(1f)) {
                     Text(section.title, fontWeight = FontWeight.Bold)
                     Text(
-                        if (section.accepted) "将写入交付稿" else "已排除",
+                        if (locked) {
+                            "最终版已锁定"
+                        } else if (section.accepted) {
+                            "将写入交付稿"
+                        } else {
+                            "已排除"
+                        },
                         color = if (section.accepted) Moss else Muted,
                         fontSize = 11.sp
                     )
                 }
-                IconButton(onClick = onMoveUp, enabled = canMoveUp) {
+                IconButton(onClick = onMoveUp, enabled = canMoveUp && !locked) {
                     Icon(Icons.Outlined.ArrowUpward, contentDescription = "上移")
                 }
-                IconButton(onClick = onMoveDown, enabled = canMoveDown) {
+                IconButton(onClick = onMoveDown, enabled = canMoveDown && !locked) {
                     Icon(Icons.Outlined.ArrowDownward, contentDescription = "下移")
                 }
             }
@@ -817,6 +1078,14 @@ private fun SectionEditorCard(
                         lineHeight = 17.sp
                     )
                 }
+            }
+            if (section.benefit.isNotBlank()) {
+                Text(
+                    "修改收益：${section.benefit}",
+                    color = Moss,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp
+                )
             }
             if (section.verificationStatus.isNotBlank()) {
                 Surface(
@@ -845,9 +1114,54 @@ private fun SectionEditorCard(
                     lineHeight = 18.sp
                 )
             }
+            TextButton(onClick = { showDiff = !showDiff }) {
+                Text(if (showDiff) "收起逐句对照" else "查看逐句对照")
+            }
+            if (showDiff) {
+                Surface(
+                    color = Color(0xFFF4F2EC),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        TextDiffEngine.compare(section.sourceEvidence, content)
+                            .take(30)
+                            .forEach { line ->
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        when (line.kind) {
+                                            DiffKind.SAME -> "未变"
+                                            DiffKind.CHANGED -> "改写"
+                                            DiffKind.ADDED -> "新增"
+                                            DiffKind.REMOVED -> "删除"
+                                        },
+                                        color = when (line.kind) {
+                                            DiffKind.SAME -> Muted
+                                            DiffKind.CHANGED -> Amber
+                                            DiffKind.ADDED -> Coral
+                                            DiffKind.REMOVED -> Coral
+                                        },
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    if (line.original.isNotBlank()) {
+                                        Text("原：${line.original}", color = Muted, fontSize = 12.sp)
+                                    }
+                                    if (line.revised.isNotBlank()) {
+                                        Text("新：${line.revised}", color = Ink, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                    }
+                }
+            }
             OutlinedTextField(
                 value = content,
                 onValueChange = { content = it },
+                enabled = !locked,
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 5,
                 maxLines = 30,
@@ -868,11 +1182,12 @@ private fun SectionEditorCard(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedButton(
                     onClick = { content = section.content },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    enabled = !locked
                 ) { Text("恢复内容") }
                 Button(
                     onClick = { onSave(content) },
-                    enabled = content != section.content,
+                    enabled = !locked && content != section.content,
                     modifier = Modifier.weight(1f)
                 ) { Text("保存修改") }
             }
@@ -944,6 +1259,170 @@ private fun FactAuditCard(project: ResumeProject) {
                 }
             }
         }
+        if (project.secondReviewFindings.isNotEmpty()) {
+            HorizontalDivider(color = Line)
+            Text(
+                "第二模型审核${project.secondReviewProvider.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty()}",
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp
+            )
+            project.secondReviewFindings.forEachIndexed { index, finding ->
+                Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.Top) {
+                    Text(
+                        "${index + 1}.",
+                        color = Coral,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.width(24.dp)
+                    )
+                    Text(finding, fontSize = 13.sp, lineHeight = 20.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VersionsTab(
+    project: ResumeProject,
+    viewModel: MainViewModel,
+    onContinue: (String) -> Unit
+) {
+    var request by rememberSaveable(project.id) { mutableStateOf("") }
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            FormSection("客户返修") {
+                Text(
+                    "直接粘贴客户反馈。系统会在当前版本基础上生成一个新版本，旧版本不会被覆盖。",
+                    color = Muted,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp
+                )
+                DetailTextField(
+                    "客户要求",
+                    request,
+                    { request = it },
+                    "例如：第二段项目经历太长，帮我压缩但不要改变事实",
+                    minLines = 4
+                )
+                Button(
+                    onClick = {
+                        viewModel.reviseDraft(request)
+                        request = ""
+                    },
+                    enabled = request.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Moss)
+                ) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("基于当前版本继续修改")
+                }
+            }
+        }
+        item {
+            Text(
+                "版本记录",
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp
+            )
+        }
+        if (project.versions.isEmpty()) {
+            item {
+                EmptyTab("还没有历史版本", "完成第一次改写后，每次生成或返修都会保留一个版本。")
+            }
+        } else {
+            items(project.versions.asReversed(), key = { it.id }) { version ->
+                OutlinedCard(
+                    colors = CardDefaults.outlinedCardColors(
+                        containerColor = if (version.id == project.activeVersionId) {
+                            Color(0xFFE8F1ED)
+                        } else {
+                            WarmWhite
+                        }
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (version.id == project.activeVersionId) Moss else Line
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(version.label, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            if (version.id == project.activeVersionId) {
+                                Spacer(Modifier.width(7.dp))
+                                VersionBadge("当前")
+                            }
+                            if (version.id == project.finalVersionId) {
+                                Spacer(Modifier.width(7.dp))
+                                VersionBadge("最终交付")
+                            }
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                SimpleDateFormat("MM-dd HH:mm", Locale.CHINA)
+                                    .format(Date(version.createdAt)),
+                                color = Muted,
+                                fontSize = 11.sp
+                            )
+                        }
+                        Text(
+                            version.instruction.ifBlank { "初次生成版本" },
+                            color = Muted,
+                            fontSize = 12.sp,
+                            lineHeight = 18.sp
+                        )
+                        Text(
+                            "采用 ${version.draftSections.count { it.accepted }}/${version.draftSections.size} 段；核实 ${version.verificationChecklist.size} 条",
+                            fontSize = 12.sp
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { onContinue(version.id) },
+                                modifier = Modifier.weight(1f)
+                            ) { Text(if (version.id == project.activeVersionId) "继续编辑" else "恢复并继续") }
+                            OutlinedButton(
+                                onClick = {
+                                    if (version.id == project.finalVersionId) {
+                                        viewModel.clearFinalVersion()
+                                    } else {
+                                        viewModel.markFinalVersion(version.id)
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    if (version.id == project.finalVersionId) {
+                                        "取消最终锁定"
+                                    } else {
+                                        "设为最终版"
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item { Spacer(Modifier.height(20.dp)) }
+    }
+}
+
+@Composable
+private fun VersionBadge(label: String) {
+    Surface(color = Color(0xFFDCEBE5), shape = CircleShape) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+            color = MossDark,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
 
@@ -953,6 +1432,11 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
     val placeholderCount = project.acceptedSections.sumOf { section ->
         Regex("待补充").findAll(section.content).count()
     }
+    val riskyUnaccepted = project.draftSections.count {
+        !it.accepted && it.verificationStatus.isNotBlank()
+    }
+    val looksLikeSecret = Regex("""sk-[A-Za-z0-9_-]{12,}|Bearer\s+[A-Za-z0-9._-]{12,}""")
+        .containsMatchIn(project.resumeText)
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
@@ -967,9 +1451,15 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
                     Icon(Icons.Outlined.Description, contentDescription = null, tint = Moss)
                     Text("交付前检查", fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        "将生成可编辑 DOCX、固定版式 PDF 和一份中文修改报告。",
+                        "将生成可编辑 DOCX、固定版式 PDF、中文修改报告，并保留一份原始文件副本。",
                         color = Muted,
                         lineHeight = 20.sp
+                    )
+                    Text(
+                        "如果原简历是 DOCX，还会生成原版式对照稿：保留原文档结构，在文末追加修订内容。",
+                        color = Muted,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp
                     )
                     HorizontalDivider(color = Color(0xFFC6DDD3))
                     Text("已采用章节：${project.acceptedSections.size} 个", fontWeight = FontWeight.Medium)
@@ -978,6 +1468,13 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
                         color = Muted,
                         fontSize = 13.sp
                     )
+                    if (project.secondReviewFindings.isNotEmpty()) {
+                        Text(
+                            "第二模型审核：${project.secondReviewFindings.size} 条，需要逐条查看",
+                            color = Coral,
+                            fontSize = 13.sp
+                        )
+                    }
                     Text(
                         if (placeholderCount == 0) {
                             "没有发现“待补充”占位符。请仍然核对经历真实性。"
@@ -988,6 +1485,20 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
                         fontSize = 13.sp,
                         lineHeight = 20.sp
                     )
+                    if (riskyUnaccepted > 0) {
+                        Text(
+                            "还有 $riskyUnaccepted 个风险段落未采用，请确认它们确实应该排除。",
+                            color = Coral,
+                            fontSize = 13.sp
+                        )
+                    }
+                    if (looksLikeSecret) {
+                        Text(
+                            "简历正文疑似包含 API Key 或 Bearer 凭证，交付前请删除。",
+                            color = Coral,
+                            fontSize = 13.sp
+                        )
+                    }
                 }
             }
         }
@@ -1025,15 +1536,35 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
                 AnalysisSection("最近一次导出") {
                     ExportFileRow(export.docx.name)
                     ExportFileRow(export.pdf.name)
-                    ExportFileRow(export.report.name)
+                    export.originalLayoutDocx?.let { ExportFileRow(it.name) }
+                    ExportFileRow("内部报告：${export.report.name}")
+                    export.original?.let { ExportFileRow(it.name) }
                     Button(
-                        onClick = { shareFiles(context, export) },
+                        onClick = {
+                            shareFiles(
+                                context,
+                                listOfNotNull(
+                                    export.docx,
+                                    export.pdf,
+                                    export.originalLayoutDocx,
+                                    export.original
+                                )
+                            )
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = Moss)
                     ) {
                         Icon(Icons.Outlined.IosShare, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("通过手机分享")
+                        Text("分享客户交付文件")
+                    }
+                    OutlinedButton(
+                        onClick = { shareFiles(context, listOf(export.report)) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Outlined.IosShare, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("只分享内部报告")
                     }
                 }
             }
@@ -1151,10 +1682,10 @@ private fun SectionCaption(text: String) {
     Text(text, color = Muted, fontSize = 12.sp)
 }
 
-private fun shareFiles(context: Context, export: ExportBundle) {
-    val uris = listOf(export.docx, export.pdf, export.report).map { file: File ->
-        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-    }
+private fun shareFiles(context: Context, files: List<File>) {
+    val uris = files.map { file ->
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        }
     val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
         type = "*/*"
         putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))

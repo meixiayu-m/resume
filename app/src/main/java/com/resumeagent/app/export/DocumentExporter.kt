@@ -6,17 +6,23 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import com.resumeagent.app.data.ProjectStore
 import com.resumeagent.app.domain.DraftSection
+import com.resumeagent.app.domain.OptimizationMode
 import com.resumeagent.app.domain.ResumeProject
+import com.resumeagent.app.domain.SeniorityLevel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
 data class ExportBundle(
     val docx: File,
     val pdf: File,
-    val report: File
+    val report: File,
+    val original: File? = null,
+    val originalLayoutDocx: File? = null
 )
 
 class DocumentExporter(
@@ -43,7 +49,22 @@ class DocumentExporter(
         val report = File(output, "${baseName}_修改报告.txt").apply {
             writeText(createReport(project, sections))
         }
-        ExportBundle(docx, pdf, report)
+        val original = project.localResumePath
+            ?.let(::File)
+            ?.takeIf { it.isFile }
+            ?.let { source ->
+                File(output, "${baseName}_原始版.${source.extension.ifBlank { "bin" }}")
+                    .also { source.copyTo(it, overwrite = true) }
+            }
+        val originalLayoutDocx = project.localResumePath
+            ?.let(::File)
+            ?.takeIf { it.isFile && it.extension.equals("docx", ignoreCase = true) }
+            ?.let { source ->
+                File(output, "${baseName}_原版式对照稿.docx").apply {
+                    writeBytes(createOriginalLayoutDocx(source, deliverableSections))
+                }
+            }
+        ExportBundle(docx, pdf, report, original, originalLayoutDocx)
     }
 
     private fun createDocx(project: ResumeProject, sections: List<DraftSection>): ByteArray {
@@ -102,9 +123,6 @@ class DocumentExporter(
                 zip.closeEntry()
             }
             bytes.toByteArray()
-        }.also {
-            // Keep the exported document self-describing when opened outside the app.
-            require(project.targetRole.isNotBlank())
         }
     }
 
@@ -210,9 +228,20 @@ class DocumentExporter(
             appendLine("目标岗位：${project.targetRole}")
             appendLine("目标公司：${project.company.ifBlank { "未填写" }}")
             appendLine("目标行业：${project.industry.ifBlank { "未填写" }}")
+            appendLine("优化方式：${modeLabel(project.optimizationMode)}")
+            appendLine("目标职级：${seniorityLabel(project.seniorityLevel)}")
+            if (project.clientName.isNotBlank()) appendLine("客户称呼：${project.clientName}")
+            if (project.dueDate.isNotBlank()) appendLine("交付日期：${project.dueDate}")
+            if (project.orderNote.isNotBlank()) appendLine("订单备注：${project.orderNote}")
             appendLine()
             project.analysis?.let { analysis ->
-                appendLine("适配度综合评分：${analysis.overallScore}/100（内部参考，不代表录用概率）")
+                appendLine(
+                    if (project.optimizationMode == OptimizationMode.GENERAL) {
+                        "简历质量综合评分：${analysis.overallScore}/100（内部参考）"
+                    } else {
+                        "岗位适配综合评分：${analysis.overallScore}/100（内部参考，不代表录用概率）"
+                    }
+                )
                 appendLine(analysis.fitSummary)
                 appendLine()
                 appendLine("分项诊断")
@@ -232,10 +261,23 @@ class DocumentExporter(
                     analysis.riskWarnings.forEach { appendLine("- $it") }
                 }
             }
+            if (project.ruleChecks.isNotEmpty()) {
+                appendLine()
+                appendLine("规则检查")
+                project.ruleChecks.forEach {
+                    appendLine("- ${it.name}：${if (it.passed) "通过" else "需检查"}，${it.detail}")
+                }
+            }
+            if (project.secondReviewFindings.isNotEmpty()) {
+                appendLine()
+                appendLine("第二模型审核${project.secondReviewProvider.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty()}")
+                project.secondReviewFindings.forEach { appendLine("- ${sanitize(it)}") }
+            }
             appendLine()
             appendLine("本次改写章节")
             sections.forEach {
-                appendLine("- ${it.title}：${it.changeNote.ifBlank { "已结合目标岗位重新组织" }}")
+                appendLine("- ${it.title}：${it.changeNote.ifBlank { "已按当前优化方式调整" }}")
+                if (it.benefit.isNotBlank()) appendLine("  修改收益：${sanitize(it.benefit)}")
             }
             appendLine()
             appendLine("需客户核实清单")
@@ -286,6 +328,47 @@ class DocumentExporter(
         )
     }
 
+    private fun createOriginalLayoutDocx(
+        source: File,
+        sections: List<DraftSection>
+    ): ByteArray {
+        val appendix = buildString {
+            append("<w:p><w:r><w:br w:type=\"page\"/></w:r></w:p>")
+            sections.forEachIndexed { index, section ->
+                append(docxParagraph(section.title, heading = true, first = index == 0))
+                section.content.lines().filter(String::isNotBlank).forEach {
+                    append(docxParagraph(it))
+                }
+            }
+        }
+        return ByteArrayOutputStream().use { bytes ->
+            ZipOutputStream(bytes).use { output ->
+                ZipFile(source).use { input ->
+                    input.entries().asSequence().forEach { entry ->
+                        output.putNextEntry(ZipEntry(entry.name))
+                        val sourceBytes = input.getInputStream(entry).use { it.readBytes() }
+                        if (entry.name == "word/document.xml") {
+                            val xml = String(sourceBytes, Charsets.UTF_8)
+                            val marker = "<w:sectPr"
+                            val bodyEnd = "</w:body>"
+                            val insertAt = xml.lastIndexOf(marker).takeIf { it >= 0 }
+                                ?: xml.lastIndexOf(bodyEnd).takeIf { it >= 0 }
+                                ?: error("无法定位 DOCX 文档正文末尾")
+                            output.write(
+                                (xml.substring(0, insertAt) + appendix + xml.substring(insertAt))
+                                    .toByteArray(Charsets.UTF_8)
+                            )
+                        } else {
+                            output.write(sourceBytes)
+                        }
+                        output.closeEntry()
+                    }
+                }
+            }
+            bytes.toByteArray()
+        }
+    }
+
     private fun xmlEscape(text: String): String = buildString {
         text.forEach {
             when (it) {
@@ -310,4 +393,20 @@ class DocumentExporter(
             .replace(Regex("[!！]+"), "。")
             .replace(Regex("[。]{2,}"), "。")
             .trim()
+
+    private fun modeLabel(mode: OptimizationMode): String = when (mode) {
+        OptimizationMode.TARGETED -> "特定岗位"
+        OptimizationMode.ROLE_ONLY -> "只有岗位方向"
+        OptimizationMode.GENERAL -> "通用优化"
+    }
+
+    private fun seniorityLabel(level: SeniorityLevel): String = when (level) {
+        SeniorityLevel.AUTO -> "自动"
+        SeniorityLevel.ENTRY -> "应届"
+        SeniorityLevel.JUNIOR -> "初级"
+        SeniorityLevel.MID -> "中级"
+        SeniorityLevel.SENIOR -> "资深"
+        SeniorityLevel.LEAD -> "负责人"
+        SeniorityLevel.MANAGER -> "管理"
+    }
 }

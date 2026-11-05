@@ -9,6 +9,22 @@ enum class ProjectStage {
     READY
 }
 
+enum class OptimizationMode {
+    TARGETED,
+    ROLE_ONLY,
+    GENERAL
+}
+
+enum class SeniorityLevel {
+    AUTO,
+    ENTRY,
+    JUNIOR,
+    MID,
+    SENIOR,
+    LEAD,
+    MANAGER
+}
+
 enum class IssueSeverity {
     CRITICAL,
     WARNING,
@@ -45,6 +61,7 @@ data class DraftSection(
     val title: String,
     val content: String,
     val changeNote: String = "",
+    val benefit: String = "",
     val sourceEvidence: String = "",
     val verificationStatus: String = "",
     val accepted: Boolean = true
@@ -57,21 +74,78 @@ data class TraceabilityEntry(
     val status: String = "待核实"
 )
 
-data class ResumeProject(
+data class FactClaim(
     val id: String = UUID.randomUUID().toString(),
-    val title: String,
-    val company: String = "",
-    val targetRole: String,
-    val industry: String = "",
-    val resumeFileName: String = "",
-    val localResumePath: String? = null,
-    val resumeText: String,
-    val jobDescription: String,
-    val supplements: String = "",
+    val quote: String,
+    val kind: String = "经历",
+    val verified: Boolean = false
+)
+
+data class RuleCheck(
+    val name: String,
+    val passed: Boolean,
+    val detail: String
+)
+
+data class ProjectVersion(
+    val id: String = UUID.randomUUID().toString(),
+    val label: String,
+    val instruction: String = "",
+    val createdAt: Long = System.currentTimeMillis(),
+    val factLedger: List<FactClaim> = emptyList(),
+    val ruleChecks: List<RuleCheck> = emptyList(),
     val analysis: ResumeAnalysis? = null,
     val draftSections: List<DraftSection> = emptyList(),
     val verificationChecklist: List<String> = emptyList(),
     val traceability: List<TraceabilityEntry> = emptyList(),
+    val secondReviewFindings: List<String> = emptyList(),
+    val secondReviewProvider: String = ""
+)
+
+data class ProjectInput(
+    val title: String = "",
+    val clientName: String = "",
+    val dueDate: String = "",
+    val orderNote: String = "",
+    val targetRole: String = "",
+    val company: String = "",
+    val industry: String = "",
+    val optimizationMode: OptimizationMode = OptimizationMode.TARGETED,
+    val seniorityLevel: SeniorityLevel = SeniorityLevel.AUTO,
+    val resumeText: String = "",
+    val jobDescription: String = "",
+    val supplements: String = ""
+)
+
+data class ResumeProject(
+    val id: String = UUID.randomUUID().toString(),
+    val title: String,
+    val company: String = "",
+    val targetRole: String = "",
+    val industry: String = "",
+    val clientName: String = "",
+    val dueDate: String = "",
+    val orderNote: String = "",
+    val optimizationMode: OptimizationMode = OptimizationMode.TARGETED,
+    val seniorityLevel: SeniorityLevel = SeniorityLevel.AUTO,
+    val resumeFileName: String = "",
+    val localResumePath: String? = null,
+    val resumeText: String,
+    val jobDescriptionFileName: String = "",
+    val localJobDescriptionPath: String? = null,
+    val jobDescription: String = "",
+    val supplements: String = "",
+    val factLedger: List<FactClaim> = emptyList(),
+    val ruleChecks: List<RuleCheck> = emptyList(),
+    val analysis: ResumeAnalysis? = null,
+    val draftSections: List<DraftSection> = emptyList(),
+    val verificationChecklist: List<String> = emptyList(),
+    val traceability: List<TraceabilityEntry> = emptyList(),
+    val secondReviewFindings: List<String> = emptyList(),
+    val secondReviewProvider: String = "",
+    val versions: List<ProjectVersion> = emptyList(),
+    val activeVersionId: String? = null,
+    val finalVersionId: String? = null,
     val stage: ProjectStage = ProjectStage.IMPORTED,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
@@ -92,6 +166,7 @@ data class AiProviderSettings(
     val id: AiProviderId,
     val label: String,
     val endpoint: String,
+    val modelsEndpoint: String,
     val textModel: String,
     val visionModel: String = ""
 )
@@ -99,7 +174,9 @@ data class AiProviderSettings(
 data class AiSettings(
     val providers: List<AiProviderSettings> = defaultAiProviders(),
     val activeTextProvider: AiProviderId = AiProviderId.ZHIPU,
-    val activeVisionProvider: AiProviderId = AiProviderId.ZHIPU
+    val activeVisionProvider: AiProviderId = AiProviderId.ZHIPU,
+    val dualReviewEnabled: Boolean = false,
+    val activeReviewProvider: AiProviderId = AiProviderId.ZHIPU
 )
 
 fun defaultAiProviders(): List<AiProviderSettings> = listOf(
@@ -107,6 +184,7 @@ fun defaultAiProviders(): List<AiProviderSettings> = listOf(
         id = AiProviderId.ZHIPU,
         label = "智谱",
         endpoint = "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        modelsEndpoint = "https://open.bigmodel.cn/api/paas/v4/models",
         textModel = "glm-4.6-flash",
         visionModel = "glm-4.6v-flash"
     ),
@@ -114,6 +192,7 @@ fun defaultAiProviders(): List<AiProviderSettings> = listOf(
         id = AiProviderId.KIMI,
         label = "Kimi",
         endpoint = "https://api.moonshot.cn/v1/chat/completions",
+        modelsEndpoint = "https://api.moonshot.cn/v1/models",
         textModel = "moonshot-v1-32k",
         visionModel = "moonshot-v1-8k-vision-preview"
     ),
@@ -121,6 +200,7 @@ fun defaultAiProviders(): List<AiProviderSettings> = listOf(
         id = AiProviderId.DEEPSEEK,
         label = "DeepSeek",
         endpoint = "https://api.deepseek.com/chat/completions",
+        modelsEndpoint = "https://api.deepseek.com/models",
         textModel = "deepseek-chat",
         visionModel = ""
     ),
@@ -128,6 +208,7 @@ fun defaultAiProviders(): List<AiProviderSettings> = listOf(
         id = AiProviderId.QWEN,
         label = "千问",
         endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        modelsEndpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1/models",
         textModel = "qwen-plus",
         visionModel = "qwen-vl-max"
     ),
@@ -135,9 +216,17 @@ fun defaultAiProviders(): List<AiProviderSettings> = listOf(
         id = AiProviderId.CUSTOM,
         label = "自定义",
         endpoint = "",
+        modelsEndpoint = "",
         textModel = "",
         visionModel = ""
     )
+)
+
+data class AiModelInfo(
+    val id: String,
+    val ownedBy: String = "",
+    val contextLength: Long? = null,
+    val description: String = ""
 )
 
 data class ImportedDocument(

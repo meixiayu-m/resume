@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,6 +33,9 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.UploadFile
 import androidx.compose.material3.Button
@@ -40,6 +45,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -52,6 +58,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -79,8 +86,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.resumeagent.app.domain.AiProviderId
 import com.resumeagent.app.domain.AiProviderSettings
 import com.resumeagent.app.domain.AiSettings
+import com.resumeagent.app.domain.AiModelInfo
+import com.resumeagent.app.domain.OptimizationMode
 import com.resumeagent.app.domain.ProjectStage
+import com.resumeagent.app.domain.ProjectInput
 import com.resumeagent.app.domain.ResumeProject
+import com.resumeagent.app.domain.SeniorityLevel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -139,7 +150,8 @@ fun ResumeAgentApp(mainViewModel: MainViewModel = viewModel()) {
                     mainViewModel.selectProject(null)
                     route = ROUTE_CREATE
                 },
-                onOpenSettings = { route = ROUTE_SETTINGS }
+                onOpenSettings = { route = ROUTE_SETTINGS },
+                onDeleteProject = mainViewModel::deleteProjectById
             )
         }
 
@@ -162,8 +174,11 @@ private fun HomeScreen(
     state: MainUiState,
     onOpenProject: (ResumeProject) -> Unit,
     onNewProject: () -> Unit,
-    onOpenSettings: () -> Unit
+    onOpenSettings: () -> Unit,
+    onDeleteProject: (String) -> Unit
 ) {
+    var deleteCandidate by remember { mutableStateOf<ResumeProject?>(null) }
+    var finalDeleteCandidate by remember { mutableStateOf<ResumeProject?>(null) }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -223,10 +238,54 @@ private fun HomeScreen(
                     )
                 }
                 items(state.projects, key = { it.id }) { project ->
-                    ProjectCard(project = project, onClick = { onOpenProject(project) })
+                    ProjectCard(
+                        project = project,
+                        onClick = { onOpenProject(project) },
+                        onDelete = { deleteCandidate = project }
+                    )
                 }
             }
         }
+    }
+    deleteCandidate?.let { project ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { deleteCandidate = null },
+            title = { Text("删除这份简历任务") },
+            text = { Text("删除会释放本机空间，同时移除原简历、诊断、版本历史和导出文件。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteCandidate = null
+                    finalDeleteCandidate = project
+                }) {
+                    Text("继续", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteCandidate = null }) { Text("取消") }
+            }
+        )
+    }
+    finalDeleteCandidate?.let { project ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { finalDeleteCandidate = null },
+            title = { Text("再次确认永久删除") },
+            text = {
+                Text(
+                    "将删除“${project.title.ifBlank { project.targetRole.ifBlank { "通用简历优化" } }}”，包括 ${project.versions.size} 个历史版本和全部导出文件。此操作无法撤销。"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    finalDeleteCandidate = null
+                    onDeleteProject(project.id)
+                }) {
+                    Text("永久删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { finalDeleteCandidate = null }) { Text("保留") }
+            }
+        )
     }
 }
 
@@ -259,12 +318,12 @@ private fun AgentHero(projectCount: Int, readyCount: Int) {
                     }
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        Text("岗位定向简历工作台", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text("先诊断证据，再逐段改写", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
+                        Text("事实优先的简历工作台", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text("特定岗位、岗位方向或通用优化", color = Color.White.copy(alpha = 0.72f), fontSize = 12.sp)
                     }
                 }
                 Text(
-                    "把原简历和 JD 交给 Agent，找出真正影响筛选的问题。所有事实都必须由你确认，不编造经历。",
+                    "先提取事实，再按目标诊断和改写。没有 JD 时也可以只按岗位方向或通用质量优化。",
                     color = Color.White.copy(alpha = 0.9f),
                     lineHeight = 21.sp
                 )
@@ -287,7 +346,7 @@ private fun HeroMetric(value: String, label: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ProjectCard(project: ResumeProject, onClick: () -> Unit) {
+private fun ProjectCard(project: ResumeProject, onClick: () -> Unit, onDelete: () -> Unit) {
     OutlinedCard(
         onClick = onClick,
         colors = CardDefaults.outlinedCardColors(containerColor = WarmWhite),
@@ -308,13 +367,14 @@ private fun ProjectCard(project: ResumeProject, onClick: () -> Unit) {
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        project.targetRole,
+                        project.targetRole.ifBlank { project.title },
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        listOf(project.company, project.industry).filter { it.isNotBlank() }
+                        listOf(project.clientName, project.company, project.industry)
+                            .filter { it.isNotBlank() }
                             .joinToString(" · ").ifBlank { "未填写公司/行业" },
                         color = Muted,
                         fontSize = 13.sp,
@@ -335,15 +395,33 @@ private fun ProjectCard(project: ResumeProject, onClick: () -> Unit) {
                         fontWeight = FontWeight.SemiBold
                     )
                 }
+                Spacer(Modifier.width(4.dp))
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        Icons.Outlined.DeleteOutline,
+                        contentDescription = "删除任务",
+                        tint = Muted
+                    )
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    project.analysis?.let { "匹配度 ${it.overallScore}" } ?: "等待诊断",
+                    project.analysis?.let {
+                        if (project.optimizationMode == OptimizationMode.GENERAL) {
+                            "质量评分 ${it.overallScore}"
+                        } else {
+                            "适配评分 ${it.overallScore}"
+                        }
+                    } ?: "等待诊断",
                     color = if (project.analysis == null) Muted else Moss,
                     fontWeight = FontWeight.Medium,
                     fontSize = 13.sp
                 )
                 Spacer(Modifier.weight(1f))
+                if (project.dueDate.isNotBlank()) {
+                    Text("交付 ${project.dueDate}", color = Amber, fontSize = 11.sp)
+                    Spacer(Modifier.width(10.dp))
+                }
                 Text(
                     SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(project.updatedAt)),
                     color = Muted,
@@ -370,7 +448,7 @@ private fun EmptyProjects() {
         ) {
             Text("还没有简历任务", fontWeight = FontWeight.Bold)
             Text(
-                "点“新建任务”，导入买家的原简历和目标岗位 JD。",
+                "点“新建任务”，可选择特定岗位、只有岗位方向或完全通用优化。",
                 color = Muted,
                 fontSize = 13.sp
             )
@@ -384,21 +462,33 @@ private fun NewProjectScreen(
     hasApiKey: Boolean,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
-    onCreate: (String, String, String, String, Uri?, String, String) -> Unit
+    onCreate: (ProjectInput, Uri?, Uri?) -> Unit
 ) {
     val context = LocalContext.current
     var title by rememberSaveable { mutableStateOf("") }
     var company by rememberSaveable { mutableStateOf("") }
     var targetRole by rememberSaveable { mutableStateOf("") }
     var industry by rememberSaveable { mutableStateOf("") }
+    var clientName by rememberSaveable { mutableStateOf("") }
+    var dueDate by rememberSaveable { mutableStateOf("") }
+    var orderNote by rememberSaveable { mutableStateOf("") }
+    var modeName by rememberSaveable { mutableStateOf(OptimizationMode.TARGETED.name) }
+    var seniorityName by rememberSaveable { mutableStateOf(SeniorityLevel.AUTO.name) }
     var resumeText by rememberSaveable { mutableStateOf("") }
     var jobDescription by rememberSaveable { mutableStateOf("") }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var selectedName by remember { mutableStateOf("") }
+    var selectedJdUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedJdName by remember { mutableStateOf("") }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         selectedUri = uri
         selectedName = uri?.let { queryDisplayName(context, it) }.orEmpty()
     }
+    val jdFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        selectedJdUri = uri
+        selectedJdName = uri?.let { queryDisplayName(context, it) }.orEmpty()
+    }
+    val mode = OptimizationMode.valueOf(modeName)
 
     Scaffold(
         containerColor = Paper,
@@ -433,8 +523,30 @@ private fun NewProjectScreen(
                 }
             }
             item {
+                FormSection("优化方式") {
+                    OptimizationModeSelector(mode) { modeName = it.name }
+                    Text(
+                        when (mode) {
+                            OptimizationMode.TARGETED -> "有具体岗位和 JD，会分析岗位匹配、关键词差距和定向改写。"
+                            OptimizationMode.ROLE_ONLY -> "知道想投的岗位方向，但没有具体 JD。只分析岗位方向相关性，不猜测招聘要求。"
+                            OptimizationMode.GENERAL -> "没有明确目标岗位或 JD。只做通用质量、事实、结构和表达优化。"
+                        },
+                        color = Muted,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp
+                    )
+                }
+            }
+            item {
                 FormSection("岗位信息") {
-                    ResumeTextField("目标岗位 *", targetRole, { targetRole = it }, "例如：高级产品经理")
+                    if (mode != OptimizationMode.GENERAL) {
+                        ResumeTextField(
+                            "目标岗位 *",
+                            targetRole,
+                            { targetRole = it },
+                            "例如：高级产品经理"
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Box(Modifier.weight(1f)) {
                             ResumeTextField("目标公司", company, { company = it }, "可空")
@@ -443,7 +555,24 @@ private fun NewProjectScreen(
                             ResumeTextField("行业", industry, { industry = it }, "例如：SaaS")
                         }
                     }
+                    SenioritySelector(
+                        selected = SeniorityLevel.valueOf(seniorityName),
+                        onSelect = { seniorityName = it.name }
+                    )
                     ResumeTextField("任务名称", title, { title = it }, "不填则使用目标岗位")
+                }
+            }
+            item {
+                FormSection("接单信息") {
+                    ResumeTextField("客户称呼", clientName, { clientName = it }, "仅用于本机区分订单")
+                    ResumeTextField("交付日期", dueDate, { dueDate = it }, "例如：2026-11-10")
+                    ResumeTextField(
+                        "订单备注",
+                        orderNote,
+                        { orderNote = it },
+                        "例如：重点突出项目管理经验",
+                        minLines = 2
+                    )
                 }
             }
             item {
@@ -493,28 +622,55 @@ private fun NewProjectScreen(
                     )
                 }
             }
-            item {
-                FormSection("岗位 JD") {
-                    ResumeTextField(
-                        "粘贴招聘要求 *",
-                        jobDescription,
-                        { jobDescription = it },
-                        "建议包含岗位职责、任职要求、加分项…",
-                        minLines = 9
-                    )
+            if (mode == OptimizationMode.TARGETED) {
+                item {
+                    FormSection("岗位 JD") {
+                        OutlinedButton(
+                            onClick = {
+                                jdFilePicker.launch(
+                                    arrayOf(
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                        "application/pdf",
+                                        "text/plain",
+                                        "image/*"
+                                    )
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Outlined.UploadFile, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (selectedJdName.isBlank()) "从文件或招聘截图导入 JD" else selectedJdName)
+                        }
+                        ResumeTextField(
+                            "粘贴招聘要求 *",
+                            jobDescription,
+                            { jobDescription = it },
+                            "建议包含岗位职责、任职要求、加分项…",
+                            minLines = 9
+                        )
+                    }
                 }
             }
             item {
                 Button(
                     onClick = {
                         onCreate(
-                            title,
-                            company,
-                            targetRole,
-                            industry,
+                            ProjectInput(
+                                title = title,
+                                clientName = clientName,
+                                dueDate = dueDate,
+                                orderNote = orderNote,
+                                targetRole = targetRole,
+                                company = company,
+                                industry = industry,
+                                optimizationMode = mode,
+                                seniorityLevel = SeniorityLevel.valueOf(seniorityName),
+                                resumeText = resumeText,
+                                jobDescription = jobDescription
+                            ),
                             selectedUri,
-                            resumeText,
-                            jobDescription
+                            selectedJdUri
                         )
                     },
                     modifier = Modifier
@@ -536,10 +692,13 @@ private fun NewProjectScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
+    val appState by viewModel.state.collectAsStateWithLifecycle()
     val initial = remember { viewModel.readSettings() }
     var providers by remember { mutableStateOf(initial.providers) }
     var activeText by rememberSaveable { mutableStateOf(initial.activeTextProvider.name) }
     var activeVision by rememberSaveable { mutableStateOf(initial.activeVisionProvider.name) }
+    var activeReview by rememberSaveable { mutableStateOf(initial.activeReviewProvider.name) }
+    var dualReviewEnabled by rememberSaveable { mutableStateOf(initial.dualReviewEnabled) }
     var expandedProvider by rememberSaveable { mutableStateOf(initial.activeTextProvider.name) }
     var keys by remember { mutableStateOf<Map<AiProviderId, String>>(emptyMap()) }
     var configuredProviders by remember {
@@ -598,6 +757,8 @@ private fun SettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                     keyDraft = keys[provider.id].orEmpty(),
                     isTextProvider = provider.id.name == activeText,
                     isVisionProvider = provider.id.name == activeVision,
+                    models = appState.modelsByProvider[provider.id].orEmpty(),
+                    loadingModels = appState.modelLoadingProvider == provider.id,
                     onExpand = {
                         expandedProvider = if (expandedProvider == provider.id.name) {
                             ""
@@ -611,6 +772,9 @@ private fun SettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                     },
                     onSelectText = { activeText = provider.id.name },
                     onSelectVision = { activeVision = provider.id.name },
+                    onRefreshModels = {
+                        viewModel.fetchModels(provider, keys[provider.id].orEmpty())
+                    },
                     onClearKey = {
                         viewModel.clearApiKey(provider.id)
                         configuredProviders = configuredProviders - provider.id
@@ -619,13 +783,58 @@ private fun SettingsScreen(viewModel: MainViewModel, onBack: () -> Unit) {
                 )
             }
             item {
+                FormSection("双模型审核") {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("开启第二模型事实审核", fontWeight = FontWeight.Medium)
+                            Text(
+                                "默认关闭。开启后，主模型改写，审核模型只提出问题，不自动修改正文。",
+                                color = Muted,
+                                fontSize = 12.sp,
+                                lineHeight = 18.sp
+                            )
+                        }
+                        Switch(
+                            checked = dualReviewEnabled,
+                            onCheckedChange = { dualReviewEnabled = it }
+                        )
+                    }
+                    if (dualReviewEnabled) {
+                        Text("选择审核 AI", color = Muted, fontSize = 12.sp)
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(7.dp)
+                        ) {
+                            providers.forEach { provider ->
+                                FilterChip(
+                                    selected = activeReview == provider.id.name,
+                                    onClick = { activeReview = provider.id.name },
+                                    label = { Text(provider.label) }
+                                )
+                            }
+                        }
+                        if (activeReview == activeText) {
+                            Text(
+                                "审核 AI 与主改写 AI 相同。可以运行，但事实交叉检查价值会降低。",
+                                color = Coral,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
+            item {
                 Button(
                     onClick = {
                         viewModel.saveSettings(
                             AiSettings(
                                 providers = providers,
                                 activeTextProvider = AiProviderId.valueOf(activeText),
-                                activeVisionProvider = AiProviderId.valueOf(activeVision)
+                                activeVisionProvider = AiProviderId.valueOf(activeVision),
+                                dualReviewEnabled = dualReviewEnabled,
+                                activeReviewProvider = AiProviderId.valueOf(activeReview)
                             ),
                             keys
                         )
@@ -684,13 +893,17 @@ private fun ProviderSettingsCard(
     keyDraft: String,
     isTextProvider: Boolean,
     isVisionProvider: Boolean,
+    models: List<AiModelInfo>,
+    loadingModels: Boolean,
     onExpand: () -> Unit,
     onKeyChange: (String) -> Unit,
     onProviderChange: (AiProviderSettings) -> Unit,
     onSelectText: () -> Unit,
     onSelectVision: () -> Unit,
+    onRefreshModels: () -> Unit,
     onClearKey: () -> Unit
 ) {
+    var showModels by remember { mutableStateOf(false) }
     OutlinedCard(
         colors = CardDefaults.outlinedCardColors(containerColor = WarmWhite),
         border = androidx.compose.foundation.BorderStroke(
@@ -746,6 +959,12 @@ private fun ProviderSettingsCard(
                     "https://…"
                 )
                 ResumeTextField(
+                    "模型列表地址",
+                    provider.modelsEndpoint,
+                    { onProviderChange(provider.copy(modelsEndpoint = it)) },
+                    "通常为接口地址中的 /chat/completions 换成 /models"
+                )
+                ResumeTextField(
                     "文本模型",
                     provider.textModel,
                     { onProviderChange(provider.copy(textModel = it)) },
@@ -757,6 +976,74 @@ private fun ProviderSettingsCard(
                     { onProviderChange(provider.copy(visionModel = it)) },
                     "留空表示此服务不用于 OCR"
                 )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(
+                        onClick = onRefreshModels,
+                        enabled = !loadingModels,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (loadingModels) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(Icons.Outlined.Refresh, contentDescription = null)
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (loadingModels) "正在获取模型" else "通过 API 获取模型")
+                    }
+                    if (models.isNotEmpty()) {
+                        TextButton(onClick = { showModels = !showModels }) {
+                            Text(if (showModels) "收起列表" else "选择模型")
+                        }
+                    }
+                }
+                if (showModels && models.isNotEmpty()) {
+                    Surface(
+                        color = Color(0xFFF0F3EF),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            Modifier.padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Text(
+                                "接口返回 ${models.size} 个模型。列表通常不区分文本和视觉能力，请按模型 ID 自行指定用途。",
+                                color = Muted,
+                                fontSize = 11.sp,
+                                lineHeight = 17.sp
+                            )
+                            models.take(50).forEach { model ->
+                                Column(Modifier.fillMaxWidth()) {
+                                    Text(
+                                        model.id,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    model.contextLength?.let { length ->
+                                        Text("上下文 $length", color = Muted, fontSize = 10.sp)
+                                    }
+                                    Row {
+                                        TextButton(
+                                            onClick = {
+                                                onProviderChange(provider.copy(textModel = model.id))
+                                            }
+                                        ) { Text("设为文本") }
+                                        TextButton(
+                                            onClick = {
+                                                onProviderChange(provider.copy(visionModel = model.id))
+                                            }
+                                        ) { Text("设为 OCR") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = onSelectText,
@@ -848,6 +1135,66 @@ internal fun FormSection(title: String, content: @Composable () -> Unit) {
         ) {
             Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             content()
+        }
+    }
+}
+
+@Composable
+internal fun OptimizationModeSelector(
+    selected: OptimizationMode,
+    onSelect: (OptimizationMode) -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        FilterChip(
+            selected = selected == OptimizationMode.TARGETED,
+            onClick = { onSelect(OptimizationMode.TARGETED) },
+            label = { Text("特定岗位") }
+        )
+        FilterChip(
+            selected = selected == OptimizationMode.ROLE_ONLY,
+            onClick = { onSelect(OptimizationMode.ROLE_ONLY) },
+            label = { Text("只有岗位方向") }
+        )
+        FilterChip(
+            selected = selected == OptimizationMode.GENERAL,
+            onClick = { onSelect(OptimizationMode.GENERAL) },
+            label = { Text("通用优化") }
+        )
+    }
+}
+
+@Composable
+internal fun SenioritySelector(selected: SeniorityLevel, onSelect: (SeniorityLevel) -> Unit) {
+    Text("目标职级", color = Muted, fontSize = 12.sp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        SeniorityLevel.entries.forEach { level ->
+            FilterChip(
+                selected = selected == level,
+                onClick = { onSelect(level) },
+                label = {
+                    Text(
+                        when (level) {
+                            SeniorityLevel.AUTO -> "自动"
+                            SeniorityLevel.ENTRY -> "应届"
+                            SeniorityLevel.JUNIOR -> "初级"
+                            SeniorityLevel.MID -> "中级"
+                            SeniorityLevel.SENIOR -> "资深"
+                            SeniorityLevel.LEAD -> "负责人"
+                            SeniorityLevel.MANAGER -> "管理"
+                        }
+                    )
+                }
+            )
         }
     }
 }

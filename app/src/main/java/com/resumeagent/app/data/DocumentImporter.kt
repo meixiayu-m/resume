@@ -24,12 +24,17 @@ class DocumentImporter(
     private val aiClient: AiClient,
     private val store: ProjectStore
 ) {
-    suspend fun import(projectId: String, uri: Uri): ImportedDocument = withContext(Dispatchers.IO) {
+    suspend fun import(
+        projectId: String,
+        uri: Uri,
+        fileKind: String = "resume"
+    ): ImportedDocument = withContext(Dispatchers.IO) {
         val displayName = queryDisplayName(uri) ?: "resume"
         val extension = displayName.substringAfterLast('.', "").lowercase()
         val safeExtension = extension.takeIf { it in setOf("docx", "pdf", "txt", "md", "jpg", "jpeg", "png", "webp") }
             ?: "bin"
-        val target = File(store.projectDirectory(projectId), "source.$safeExtension")
+        val safeKind = fileKind.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        val target = File(store.projectDirectory(projectId), "${safeKind}_source.$safeExtension")
         context.contentResolver.openInputStream(uri)?.use { input ->
             target.outputStream().use(input::copyTo)
         } ?: error("无法读取所选文件")

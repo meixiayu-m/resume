@@ -59,7 +59,10 @@ class ProjectStore(private val context: Context) {
         File(context.filesDir, "exports")
             .listFiles()
             .orEmpty()
-            .filter { it.isDirectory && it.name.endsWith("_$projectId") }
+            .filter {
+                it.isDirectory &&
+                    (it.name.endsWith("_$projectId") || it.name.endsWith("_${projectId.take(6)}"))
+            }
             .forEach { it.deleteRecursively() }
         if (lastSelectedProjectId() == projectId) setLastSelectedProjectId(null)
     }

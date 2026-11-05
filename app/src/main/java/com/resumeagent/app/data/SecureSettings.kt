@@ -79,7 +79,10 @@ class SecureSettings(private val context: Context) {
                 activeTextProvider = root.optString("activeTextProvider")
                     .toProviderIdOrFallback(fallback.activeTextProvider),
                 activeVisionProvider = root.optString("activeVisionProvider")
-                    .toProviderIdOrFallback(fallback.activeVisionProvider)
+                    .toProviderIdOrFallback(fallback.activeVisionProvider),
+                dualReviewEnabled = root.optBoolean("dualReviewEnabled", false),
+                activeReviewProvider = root.optString("activeReviewProvider")
+                    .toProviderIdOrFallback(fallback.activeReviewProvider)
             )
         }.getOrDefault(fallback)
     }
@@ -88,12 +91,15 @@ class SecureSettings(private val context: Context) {
         val root = JSONObject()
             .put("activeTextProvider", settings.activeTextProvider.name)
             .put("activeVisionProvider", settings.activeVisionProvider.name)
+            .put("dualReviewEnabled", settings.dualReviewEnabled)
+            .put("activeReviewProvider", settings.activeReviewProvider.name)
             .put("providers", JSONArray().apply {
                 settings.providers.forEach { provider ->
                     put(JSONObject()
                         .put("id", provider.id.name)
                         .put("label", provider.label)
                         .put("endpoint", provider.endpoint.trim())
+                        .put("modelsEndpoint", provider.modelsEndpoint.trim())
                         .put("textModel", provider.textModel.trim())
                         .put("visionModel", provider.visionModel.trim()))
                 }
@@ -116,6 +122,8 @@ class SecureSettings(private val context: Context) {
                         id = id,
                         label = item.optString("label").ifBlank { fallback.label },
                         endpoint = item.optString("endpoint"),
+                        modelsEndpoint = item.optString("modelsEndpoint")
+                            .ifBlank { fallback.modelsEndpoint },
                         textModel = item.optString("textModel"),
                         visionModel = item.optString("visionModel")
                     )
