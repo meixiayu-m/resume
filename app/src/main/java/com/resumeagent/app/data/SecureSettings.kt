@@ -77,9 +77,9 @@ class SecureSettings(private val context: Context) {
             AiSettings(
                 providers = if (providers.isEmpty()) fallback.providers else providers,
                 activeTextProvider = root.optString("activeTextProvider")
-                    .toProviderId(fallback.activeTextProvider),
+                    .toProviderIdOrFallback(fallback.activeTextProvider),
                 activeVisionProvider = root.optString("activeVisionProvider")
-                    .toProviderId(fallback.activeVisionProvider)
+                    .toProviderIdOrFallback(fallback.activeVisionProvider)
             )
         }.getOrDefault(fallback)
     }
@@ -108,7 +108,7 @@ class SecureSettings(private val context: Context) {
         val decoded = buildMap {
             for (index in 0 until length()) {
                 val item = optJSONObject(index) ?: continue
-                val id = item.optString("id").toProviderId(null) ?: continue
+                val id = item.optString("id").toProviderIdOrNull() ?: continue
                 val fallback = defaults[id] ?: continue
                 put(
                     id,
@@ -125,8 +125,11 @@ class SecureSettings(private val context: Context) {
         return defaults.values.map { decoded[it.id] ?: it }
     }
 
-    private fun String.toProviderId(fallback: AiProviderId?): AiProviderId? =
-        runCatching { AiProviderId.valueOf(this) }.getOrNull() ?: fallback
+    private fun String.toProviderIdOrNull(): AiProviderId? =
+        runCatching { AiProviderId.valueOf(this) }.getOrNull()
+
+    private fun String.toProviderIdOrFallback(fallback: AiProviderId): AiProviderId =
+        toProviderIdOrNull() ?: fallback
 
     private fun secretKey(): SecretKey {
         val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }

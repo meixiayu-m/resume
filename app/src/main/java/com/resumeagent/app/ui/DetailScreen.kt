@@ -949,6 +949,7 @@ private fun FactAuditCard(project: ResumeProject) {
 
 @Composable
 private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: () -> Unit) {
+    val context = LocalContext.current
     val placeholderCount = project.acceptedSections.sumOf { section ->
         Regex("待补充").findAll(section.content).count()
     }
@@ -1026,7 +1027,7 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
                     ExportFileRow(export.pdf.name)
                     ExportFileRow(export.report.name)
                     Button(
-                        onClick = { shareFiles(LocalContext.current, export) },
+                        onClick = { shareFiles(context, export) },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = Moss)
                     ) {

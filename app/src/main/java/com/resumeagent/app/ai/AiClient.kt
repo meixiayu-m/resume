@@ -32,7 +32,7 @@ class AiClient(private val settings: SecureSettings) {
         val response = complete(
             kind = RequestKind.TEXT,
             systemPrompt = ANALYSIS_SYSTEM_PROMPT,
-            userText = """
+            userContent = """
 目标岗位：${project.targetRole}
 目标公司：${project.company.ifBlank { "未填写" }}
 目标行业：${project.industry.ifBlank { "未填写" }}
@@ -60,7 +60,7 @@ ${project.jobDescription.take(MAX_JD_CHARS)}
         val response = complete(
             kind = RequestKind.TEXT,
             systemPrompt = REWRITE_SYSTEM_PROMPT,
-            userText = """
+            userContent = """
 目标岗位：${project.targetRole}
 目标公司：${project.company.ifBlank { "未填写" }}
 目标行业：${project.industry.ifBlank { "未填写" }}
@@ -364,7 +364,7 @@ traceability 必须为每一句包含数字、职责边界或成果的修订表�
 不要自行生成“需客户核实清单”和“数据溯源表”章节，交付程序会在末尾统一生成。
 """.trimIndent()
 
-        private const val OCR_SYSTEM_PROMPT = """
+        private val OCR_SYSTEM_PROMPT = """
 你是一个精确的文档转录器。把图片中的简历文字按阅读顺序完整转录。
 保持姓名、公司、日期、数字、英文缩写和技术名词准确；不确定的字用“□”标记，不要猜测。
 保留段落与项目符号，不总结、不改写、不补充。只输出转录文字。
