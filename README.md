@@ -83,6 +83,8 @@ AI 仍然可能理解错误，交付前必须人工逐项核实。
 
 工作流会执行单元测试和 `:app:assembleDebug`。
 
+工作流文件位于 [android-build.yml](.github/workflows/android-build.yml)。
+
 第一次安装不要求签名 Secret。为了以后用新 APK 覆盖旧版本并保留 App 内任务，建议创建一份固定的 Android Keystore，并添加以下 GitHub Secrets：
 
 ```text
