@@ -15,7 +15,11 @@ object RuleChecker {
     fun check(resumeText: String): List<RuleCheck> {
         val text = resumeText.trim()
         val lines = text.lines().map(String::trim).filter(String::isNotBlank)
-        val duplicates = lines.groupingBy { it }.eachCount().filter { it.value > 1 }.keys
+        val sentences = text
+            .split(Regex("""(?<=[。；;！!？?\n])"""))
+            .map(String::trim)
+            .filter { it.length >= 4 }
+        val duplicates = sentences.groupingBy { it }.eachCount().filter { it.value > 1 }.keys
         val longLines = lines.filter { it.length > 220 }
         val placeholders = Regex("""待补充|待确认|\[[^\]]*(?:具体|内容)[^\]]*\]""")
             .findAll(text)
