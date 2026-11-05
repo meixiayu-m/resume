@@ -1253,7 +1253,7 @@ private fun BusyOverlay(message: String) {
                 CircularProgressIndicator(color = Moss, strokeWidth = 3.dp)
                 Text(message, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "请保持 App 在前台，长文档处理可能需要几十秒",
+                    "处理期间可以切换到其他 App。通知栏会显示任务状态，完成后回来查看即可。",
                     color = Muted,
                     fontSize = 12.sp
                 )

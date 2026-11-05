@@ -16,6 +16,12 @@ object FactGuard {
     private val emojiPattern = Regex("""[\p{So}\p{Sk}\uFE0F\u200D]+""")
     private val promotionPattern = Regex("主导|牵头|独立完成|全面负责|负责")
     private val juniorActionPattern = Regex("参与|协助|配合")
+    private val identityFieldPattern = Regex(
+        "生日|出生日期|出生年月|身份证|手机号|电话号码|邮箱|住址|照片|性别|年龄|婚姻|婚育|民族"
+    )
+    private val contactPattern = Regex(
+        """[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|(?<!\d)(?:\+?86[-\s]?)?1[3-9]\d(?:[-\s]?\d){8}(?!\d)"""
+    )
 
     fun audit(
         project: ResumeProject,
@@ -27,7 +33,9 @@ object FactGuard {
         val normalizedSource = normalizeEvidence(source)
         val sourceNumbers = numberTokens(source)
         val checklist = linkedSetOf<String>()
-        aiChecklist.map(::sanitize).filterTo(checklist) { it.isNotBlank() }
+        aiChecklist.map(::sanitize).filterTo(checklist) {
+            it.isNotBlank() && !identityFieldPattern.containsMatchIn(it)
+        }
         val traceability = aiTraceability.map {
             it.copy(
                 fact = sanitize(it.fact),
@@ -44,7 +52,7 @@ object FactGuard {
             val evidenceVerified =
                 sourceEvidence.isNotBlank() && normalizedSource.contains(normalizeEvidence(sourceEvidence))
 
-            (numberTokens(content) - sourceNumbers).forEach { number ->
+            (numberTokens(content.replace(contactPattern, "")) - sourceNumbers).forEach { number ->
                 risks += "新增数字 $number"
                 checklist += "核实数字“$number”是否在原简历或客户补充中有明确依据"
                 traceability += TraceabilityEntry(

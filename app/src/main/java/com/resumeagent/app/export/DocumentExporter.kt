@@ -32,7 +32,6 @@ class DocumentExporter(
     suspend fun export(project: ResumeProject): ExportBundle = withContext(Dispatchers.IO) {
         val sections = project.acceptedSections
         require(sections.isNotEmpty()) { "没有已接受的简历段落" }
-        val deliverableSections = sections + createFactAppendix(project)
         val baseName = sanitizeFileName(
             buildString {
                 append(project.targetRole.ifBlank { "简历" })
@@ -42,18 +41,20 @@ class DocumentExporter(
         )
         val output = File(store.exportDirectory(), "${System.currentTimeMillis()}_${project.id}")
             .apply { mkdirs() }
-        val docx = File(output, "$baseName.docx").apply { writeBytes(createDocx(project, deliverableSections)) }
-        val pdf = File(output, "$baseName.pdf").apply {
-            outputStream().use { createPdf(project, deliverableSections, it) }
+        val docx = File(output, "${baseName}_客户交付版.docx").apply {
+            writeBytes(createDocx(project, sections))
         }
-        val report = File(output, "${baseName}_修改报告.txt").apply {
+        val pdf = File(output, "${baseName}_客户交付版.pdf").apply {
+            outputStream().use { createPdf(project, sections, it) }
+        }
+        val report = File(output, "${baseName}_内部审核报告.txt").apply {
             writeText(createReport(project, sections))
         }
         val original = project.localResumePath
             ?.let(::File)
             ?.takeIf { it.isFile }
             ?.let { source ->
-                File(output, "${baseName}_原始版.${source.extension.ifBlank { "bin" }}")
+                File(output, "${baseName}_原文件备份.${source.extension.ifBlank { "bin" }}")
                     .also { source.copyTo(it, overwrite = true) }
             }
         val originalLayoutDocx = project.localResumePath
@@ -61,7 +62,7 @@ class DocumentExporter(
             ?.takeIf { it.isFile && it.extension.equals("docx", ignoreCase = true) }
             ?.let { source ->
                 File(output, "${baseName}_原版式对照稿.docx").apply {
-                    writeBytes(createOriginalLayoutDocx(source, deliverableSections))
+                    writeBytes(createOriginalLayoutDocx(source, sections))
                 }
             }
         ExportBundle(docx, pdf, report, original, originalLayoutDocx)
@@ -301,32 +302,6 @@ class DocumentExporter(
             appendLine()
             appendLine("注意：所有新增事实必须经候选人确认，导出前请检查“待补充”占位符。")
         })
-
-    private fun createFactAppendix(project: ResumeProject): List<DraftSection> {
-        val checklist = if (project.verificationChecklist.isEmpty()) {
-            "未发现新增数字、职责升级或无依据关键词，仍请客户逐项核对真实经历。"
-        } else {
-            project.verificationChecklist.mapIndexed { index, item ->
-                "${index + 1}. ${sanitize(item)}"
-            }.joinToString("\n")
-        }
-        val traceability = if (project.traceability.isEmpty()) {
-            "AI 未返回可逐条核对的数据，请人工复核全部数字、职责边界和成果。"
-        } else {
-            project.traceability.mapIndexed { index, entry ->
-                buildString {
-                    append("${index + 1}. 事实：${sanitize(entry.fact)}")
-                    append("\n修订表述：${sanitize(entry.rewrittenText)}")
-                    append("\n原文依据：${sanitize(entry.sourceEvidence).ifBlank { "未提供" }}")
-                    append("\n状态：${sanitize(entry.status).ifBlank { "待核实" }}")
-                }
-            }.joinToString("\n\n")
-        }
-        return listOf(
-            DraftSection(title = "需客户核实清单", content = checklist),
-            DraftSection(title = "数据溯源表", content = traceability)
-        )
-    }
 
     private fun createOriginalLayoutDocx(
         source: File,

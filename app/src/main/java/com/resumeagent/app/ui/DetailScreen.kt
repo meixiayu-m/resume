@@ -1200,7 +1200,7 @@ private fun FactAuditCard(project: ResumeProject) {
     val context = LocalContext.current
     AnalysisSection("事实核验") {
         Text(
-            "以下内容会作为附录写入最终 DOCX 和 PDF。没有原文依据的事项必须由客户确认。",
+            "以下内容只写入内部审核报告，不会自动附到客户交付版 DOCX 和 PDF。",
             color = Muted,
             fontSize = 12.sp,
             lineHeight = 18.sp
@@ -1451,12 +1451,12 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
                     Icon(Icons.Outlined.Description, contentDescription = null, tint = Moss)
                     Text("交付前检查", fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        "将生成可编辑 DOCX、固定版式 PDF、中文修改报告，并保留一份原始文件副本。",
+                        "客户主交付文件只有可编辑 DOCX 和 PDF，不包含诊断、核实清单、溯源表或内部备注。",
                         color = Muted,
                         lineHeight = 20.sp
                     )
                     Text(
-                        "如果原简历是 DOCX，还会生成原版式对照稿：保留原文档结构，在文末追加修订内容。",
+                        "修改报告、核实清单和数据溯源表属于内部过程文件。原件备份和原版式对照稿也不会自动当作客户最终稿。",
                         color = Muted,
                         fontSize = 12.sp,
                         lineHeight = 18.sp
@@ -1543,12 +1543,7 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
                         onClick = {
                             shareFiles(
                                 context,
-                                listOfNotNull(
-                                    export.docx,
-                                    export.pdf,
-                                    export.originalLayoutDocx,
-                                    export.original
-                                )
+                                listOf(export.docx, export.pdf)
                             )
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -1556,7 +1551,20 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
                     ) {
                         Icon(Icons.Outlined.IosShare, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("分享客户交付文件")
+                        Text("分享客户主交付文件")
+                    }
+                    if (export.originalLayoutDocx != null || export.original != null) {
+                        OutlinedButton(
+                            onClick = {
+                                shareFiles(
+                                    context,
+                                    listOfNotNull(export.originalLayoutDocx, export.original)
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("分享原件或原版式对照稿")
+                        }
                     }
                     OutlinedButton(
                         onClick = { shareFiles(context, listOf(export.report)) },
@@ -1700,16 +1708,18 @@ private fun copyText(context: Context, label: String, text: String) {
 }
 
 private fun clientMessageFor(analysis: ResumeAnalysis): String {
-    val generated = analysis.clientQuestionMessage.trim()
-    if (generated.isNotBlank()) return generated
-    val questions = analysis.missingQuestions.mapIndexed { index, question ->
-        "${index + 1}. $question"
-    }.joinToString("\n")
+    val questions = analysis.missingQuestions
+        .take(6)
+        .mapIndexed { index, question ->
+            "${index + 1}. ${question.trim().removeSuffix("。")}。"
+        }
+        .joinToString("\n")
+    if (questions.isBlank()) return analysis.clientQuestionMessage
     return """
-        您好，我看过您的简历和这份岗位要求，想把几段经历再确认一下，避免改写时把您的工作范围和结果写偏。
+        您好，您的简历我已经看过了，想跟您确认几个地方，主要是避免修改时把您的工作内容和成果写偏。
 
         $questions
 
-        不确定的地方直接写“不确定”就可以，不用勉强补充。
+        您可以按编号直接回复，记不清的地方写“不确定”，或者告诉我大概情况也可以，不用勉强补充。
     """.trimIndent()
 }
