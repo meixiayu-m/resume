@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.resumeagent.app.ProcessingService
 import com.resumeagent.app.ai.AiClient
 import com.resumeagent.app.ai.ModelCatalog
 import com.resumeagent.app.data.DocumentImporter
@@ -771,20 +772,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun runJob(message: String, block: suspend () -> Unit) {
         if (_state.value.busyMessage != null) return
+        val application = getApplication<Application>()
+        runCatching { ProcessingService.start(application, message) }
         viewModelScope.launch {
             _state.update { it.copy(busyMessage = message, error = null) }
-            runCatching { block() }
-                .onFailure { error ->
-                    _state.update {
-                        it.copy(
-                            busyMessage = null,
-                            error = error.message ?: "操作失败，请重试"
-                        )
+            try {
+                runCatching { block() }
+                    .onFailure { error ->
+                        _state.update {
+                            it.copy(
+                                busyMessage = null,
+                                error = error.message ?: "操作失败，请重试"
+                            )
+                        }
                     }
-                }
-                .onSuccess {
-                    _state.update { it.copy(busyMessage = null) }
-                }
+                    .onSuccess {
+                        _state.update { it.copy(busyMessage = null) }
+                    }
+            } finally {
+                ProcessingService.stop(application)
+            }
         }
     }
 

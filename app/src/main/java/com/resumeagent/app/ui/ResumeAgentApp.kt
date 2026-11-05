@@ -69,6 +69,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -104,8 +105,14 @@ private const val ROUTE_SETTINGS = "settings"
 @Composable
 fun ResumeAgentApp(mainViewModel: MainViewModel = viewModel()) {
     val state by mainViewModel.state.collectAsStateWithLifecycle()
+    val saveableStateHolder = rememberSaveableStateHolder()
     var route by rememberSaveable { mutableStateOf(ROUTE_HOME) }
+    var settingsReturnRoute by rememberSaveable { mutableStateOf(ROUTE_HOME) }
     val snackbar = remember { SnackbarHostState() }
+    fun openSettings() {
+        settingsReturnRoute = route
+        route = ROUTE_SETTINGS
+    }
 
     LaunchedEffect(state.error) {
         state.error?.let {
@@ -120,39 +127,42 @@ fun ResumeAgentApp(mainViewModel: MainViewModel = viewModel()) {
     }
 
     BackHandler(enabled = route != ROUTE_HOME) {
-        route = ROUTE_HOME
+        route = if (route == ROUTE_SETTINGS) settingsReturnRoute else ROUTE_HOME
     }
 
     Box(Modifier.fillMaxSize()) {
-        when (route) {
-            ROUTE_CREATE -> NewProjectScreen(
-                hasApiKey = mainViewModel.hasApiKey(),
-                onBack = { route = ROUTE_HOME },
-                onOpenSettings = { route = ROUTE_SETTINGS },
-                onCreate = mainViewModel::createProject
-            )
-            ROUTE_DETAIL -> DetailScreen(
-                viewModel = mainViewModel,
-                onBack = { route = ROUTE_HOME },
-                onOpenSettings = { route = ROUTE_SETTINGS }
-            )
-            ROUTE_SETTINGS -> SettingsScreen(
-                viewModel = mainViewModel,
-                onBack = { route = if (state.selectedProject == null) ROUTE_HOME else ROUTE_DETAIL }
-            )
-            else -> HomeScreen(
-                state = state,
-                onOpenProject = {
-                    mainViewModel.selectProject(it)
-                    route = ROUTE_DETAIL
-                },
-                onNewProject = {
-                    mainViewModel.selectProject(null)
-                    route = ROUTE_CREATE
-                },
-                onOpenSettings = { route = ROUTE_SETTINGS },
-                onDeleteProject = mainViewModel::deleteProjectById
-            )
+        saveableStateHolder.SaveableStateProvider(route) {
+            when (route) {
+                ROUTE_CREATE -> NewProjectScreen(
+                    hasApiKey = mainViewModel.hasApiKey(),
+                    onBack = { route = ROUTE_HOME },
+                    onOpenSettings = ::openSettings,
+                    onCreate = mainViewModel::createProject
+                )
+                ROUTE_DETAIL -> DetailScreen(
+                    viewModel = mainViewModel,
+                    onBack = { route = ROUTE_HOME },
+                    onOpenSettings = ::openSettings
+                )
+                ROUTE_SETTINGS -> SettingsScreen(
+                    viewModel = mainViewModel,
+                    onBack = { route = settingsReturnRoute }
+                )
+                else -> HomeScreen(
+                    state = state,
+                    onOpenProject = {
+                        mainViewModel.selectProject(it)
+                        route = ROUTE_DETAIL
+                    },
+                    onNewProject = {
+                        saveableStateHolder.removeState(ROUTE_CREATE)
+                        mainViewModel.selectProject(null)
+                        route = ROUTE_CREATE
+                    },
+                    onOpenSettings = ::openSettings,
+                    onDeleteProject = mainViewModel::deleteProjectById
+                )
+            }
         }
 
         SnackbarHost(
@@ -476,10 +486,10 @@ private fun NewProjectScreen(
     var seniorityName by rememberSaveable { mutableStateOf(SeniorityLevel.AUTO.name) }
     var resumeText by rememberSaveable { mutableStateOf("") }
     var jobDescription by rememberSaveable { mutableStateOf("") }
-    var selectedUri by remember { mutableStateOf<Uri?>(null) }
-    var selectedName by remember { mutableStateOf("") }
-    var selectedJdUri by remember { mutableStateOf<Uri?>(null) }
-    var selectedJdName by remember { mutableStateOf("") }
+    var selectedUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var selectedName by rememberSaveable { mutableStateOf("") }
+    var selectedJdUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    var selectedJdName by rememberSaveable { mutableStateOf("") }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         selectedUri = uri
         selectedName = uri?.let { queryDisplayName(context, it) }.orEmpty()
