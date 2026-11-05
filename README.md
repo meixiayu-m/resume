@@ -76,7 +76,7 @@ AI 仍然可能理解错误，交付前必须人工逐项核实。
 本地工作电脑不执行 Gradle 构建。把整个 `ResumeAgent` 项目上传到 GitHub 仓库后：
 
 1. 打开仓库的 Actions 页面。
-2. 选择 `Android build`。
+2. 选择 `Resume Agent Build`。
 3. 点击 `Run workflow`，或向 `main` / `master` 推送代码。
 4. 构建完成后，在该次运行的 Artifacts 中下载 `resume-agent-debug-apk`。
 5. 解压后安装 `app-debug.apk`。
