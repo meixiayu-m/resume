@@ -56,6 +56,7 @@ object ProjectJson {
         .put("layoutRevision", JSONArray().apply {
             project.layoutRevision.forEach { put(encodeParagraphRevision(it)) }
         })
+        .put("sectionOrderApplied", project.sectionOrderApplied)
         .put("versions", JSONArray().apply {
             project.versions.forEach { put(encodeVersion(it)) }
         })
@@ -99,6 +100,7 @@ object ProjectJson {
             secondReviewProvider = json.optString("secondReviewProvider"),
             layoutRevision = json.optJSONArray("layoutRevision")
                 .toObjectList(::decodeParagraphRevision),
+            sectionOrderApplied = json.optBoolean("sectionOrderApplied"),
             versions = json.optJSONArray("versions").toObjectList(::decodeVersion),
             activeVersionId = json.optString("activeVersionId")
                 .takeIf { it.isNotBlank() && it != "null" },
@@ -250,6 +252,7 @@ object ProjectJson {
         .put("layoutRevision", JSONArray().apply {
             version.layoutRevision.forEach { put(encodeParagraphRevision(it)) }
         })
+        .put("sectionOrderApplied", version.sectionOrderApplied)
 
     fun decodeVersion(json: JSONObject): ProjectVersion = ProjectVersion(
         id = json.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
@@ -265,7 +268,8 @@ object ProjectJson {
         secondReviewFindings = json.optJSONArray("secondReviewFindings").toStringList(),
         secondReviewProvider = json.optString("secondReviewProvider"),
         layoutRevision = json.optJSONArray("layoutRevision")
-            .toObjectList(::decodeParagraphRevision)
+            .toObjectList(::decodeParagraphRevision),
+        sectionOrderApplied = json.optBoolean("sectionOrderApplied")
     )
 
     fun encodeParagraphRevision(revision: ParagraphRevision): JSONObject = JSONObject()

@@ -466,6 +466,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             secondReviewFindings = version.secondReviewFindings,
             secondReviewProvider = version.secondReviewProvider,
             layoutRevision = version.layoutRevision,
+            sectionOrderApplied = version.sectionOrderApplied,
             stage = ProjectStage.DRAFTED,
             updatedAt = System.currentTimeMillis()
         )
@@ -487,6 +488,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             secondReviewFindings = version.secondReviewFindings,
             secondReviewProvider = version.secondReviewProvider,
             layoutRevision = version.layoutRevision,
+            sectionOrderApplied = version.sectionOrderApplied,
             stage = ProjectStage.DRAFTED,
             updatedAt = System.currentTimeMillis()
         )
@@ -550,7 +552,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 project.copy(
                     draftSections = reordered,
                     updatedAt = System.currentTimeMillis(),
-                    layoutRevision = emptyList()
+                    sectionOrderApplied = true
                 )
             ),
             null
@@ -628,9 +630,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         persist(
             syncActiveVersion(
                 project.copy(
-                    draftSections = sections,
-                    updatedAt = System.currentTimeMillis(),
-                    layoutRevision = emptyList()
+                draftSections = sections,
+                updatedAt = System.currentTimeMillis(),
+                sectionOrderApplied = true
                 )
             ),
             null
@@ -643,7 +645,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             showError("当前查看的不是最终交付版，请先在版本历史中恢复最终版")
             return
         }
-        runJob("正在生成 DOCX、PDF 和修改报告…") {
+        runJob("正在生成最终 DOCX…") {
             val bundle = exporter.export(project)
             val updated = project.copy(stage = ProjectStage.READY, updatedAt = System.currentTimeMillis())
             store.save(updated)
@@ -722,6 +724,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 secondReviewFindings = emptyList(),
                 secondReviewProvider = "",
                 layoutRevision = emptyList(),
+                sectionOrderApplied = false,
                 stage = ProjectStage.DRAFTED,
                 updatedAt = System.currentTimeMillis()
             ),
@@ -760,7 +763,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             traceability = project.traceability,
             secondReviewFindings = project.secondReviewFindings,
             secondReviewProvider = project.secondReviewProvider,
-            layoutRevision = project.layoutRevision
+            layoutRevision = project.layoutRevision,
+            sectionOrderApplied = project.sectionOrderApplied
         )
         return project.copy(
             versions = project.versions + version,
@@ -781,7 +785,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             traceability = project.traceability,
             secondReviewFindings = project.secondReviewFindings,
             secondReviewProvider = project.secondReviewProvider,
-            layoutRevision = project.layoutRevision
+            layoutRevision = project.layoutRevision,
+            sectionOrderApplied = project.sectionOrderApplied
         )
         val migrated = project.copy(versions = listOf(version), activeVersionId = version.id)
         store.save(migrated)
@@ -804,7 +809,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         traceability = project.traceability,
                         secondReviewFindings = project.secondReviewFindings,
                         secondReviewProvider = project.secondReviewProvider,
-                        layoutRevision = project.layoutRevision
+                        layoutRevision = project.layoutRevision,
+                        sectionOrderApplied = project.sectionOrderApplied
                     )
                 }
             }

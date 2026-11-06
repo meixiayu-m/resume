@@ -18,12 +18,10 @@ import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
 data class ExportBundle(
-    val docx: File,
-    val pdf: File,
-    val report: File,
-    val original: File? = null,
-    val originalLayoutDocx: File? = null,
-    val originalLayoutIsFinal: Boolean = false
+    val files: List<File>,
+    val preservesOriginalTemplate: Boolean,
+    val includesReorderedVersion: Boolean,
+    val warning: String? = null
 )
 
 class DocumentExporter(
@@ -33,47 +31,44 @@ class DocumentExporter(
     suspend fun export(project: ResumeProject): ExportBundle = withContext(Dispatchers.IO) {
         val sections = project.acceptedSections
         require(sections.isNotEmpty()) { "没有已接受的简历段落" }
-        val baseName = sanitizeFileName(
-            buildString {
-                append(project.targetRole.ifBlank { "简历" })
-                if (project.company.isNotBlank()) append("_${project.company}")
-                append("_修订版")
-            }
-        )
+        val role = sanitizeFileName(project.targetRole.ifBlank { "简历" })
         val output = File(store.exportDirectory(), "${System.currentTimeMillis()}_${project.id}")
             .apply { mkdirs() }
-        val docx = File(output, "${baseName}_客户交付版.docx").apply {
-            writeBytes(createDocx(project, sections))
-        }
-        val pdf = File(output, "${baseName}_客户交付版.pdf").apply {
-            outputStream().use { createPdf(project, sections, it) }
-        }
-        val report = File(output, "${baseName}_内部审核报告.txt").apply {
-            writeText(createReport(project, sections))
-        }
-        val original = project.localResumePath
-            ?.let(::File)
-            ?.takeIf { it.isFile }
-            ?.let { source ->
-                File(output, "${baseName}_原文件备份.${source.extension.ifBlank { "bin" }}")
-                    .also { source.copyTo(it, overwrite = true) }
-            }
         val layoutSource = project.localResumePath
             ?.let(::File)
             ?.takeIf { it.isFile && it.extension.equals("docx", ignoreCase = true) }
-        val layoutIsFinal = layoutSource != null && project.layoutRevision.isNotEmpty()
-        val originalLayoutDocx = layoutSource?.let { source ->
-            if (layoutIsFinal) {
-                File(output, "${baseName}_原版式修订稿.docx").also { target ->
-                    DocxLayoutEditor.apply(source, project.layoutRevision, target)
-                }
-            } else {
-                File(output, "${baseName}_原版式对照稿.docx").apply {
-                    writeBytes(createOriginalLayoutDocx(source, sections))
+        val primary = File(output, "${role}_修订版.docx")
+        if (layoutSource != null) {
+            require(project.layoutRevision.isNotEmpty()) {
+                "请先到“原版式修订”页生成并检查逐段修改预览，再导出保留原模板的 DOCX。"
+            }
+            DocxLayoutEditor.apply(layoutSource, project.layoutRevision, primary)
+            val files = mutableListOf(primary)
+            var warning: String? = null
+            if (project.sectionOrderApplied) {
+                val reordered = File(output, "${role}_调整顺序修订版.docx")
+                try {
+                    DocxLayoutEditor.apply(
+                        layoutSource,
+                        project.layoutRevision,
+                        reordered,
+                        project.draftSections.map { it.title }
+                    )
+                    files += reordered
+                } catch (error: Exception) {
+                    warning = error.message ?: "未能安全识别原 DOCX 的模块位置，因此只生成了原顺序修订版。"
                 }
             }
+            ExportBundle(
+                files,
+                preservesOriginalTemplate = true,
+                includesReorderedVersion = project.sectionOrderApplied && files.size > 1,
+                warning = warning
+            )
+        } else {
+            primary.writeBytes(createDocx(project, sections))
+            ExportBundle(listOf(primary), preservesOriginalTemplate = false, includesReorderedVersion = false)
         }
-        ExportBundle(docx, pdf, report, original, originalLayoutDocx, layoutIsFinal)
     }
 
     private fun createDocx(project: ResumeProject, sections: List<DraftSection>): ByteArray {

@@ -119,7 +119,8 @@ data class ProjectVersion(
     val traceability: List<TraceabilityEntry> = emptyList(),
     val secondReviewFindings: List<String> = emptyList(),
     val secondReviewProvider: String = "",
-    val layoutRevision: List<ParagraphRevision> = emptyList()
+    val layoutRevision: List<ParagraphRevision> = emptyList(),
+    val sectionOrderApplied: Boolean = false
 )
 
 data class ProjectInput(
@@ -164,6 +165,7 @@ data class ResumeProject(
     val secondReviewFindings: List<String> = emptyList(),
     val secondReviewProvider: String = "",
     val layoutRevision: List<ParagraphRevision> = emptyList(),
+    val sectionOrderApplied: Boolean = false,
     val versions: List<ProjectVersion> = emptyList(),
     val activeVersionId: String? = null,
     val finalVersionId: String? = null,

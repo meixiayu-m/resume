@@ -740,7 +740,7 @@ private fun AnalysisTab(
                         lineHeight = 20.sp
                     )
                     Text(
-                        "原版式修订会保持客户原始段落顺序。这里的重排只用于重新排版版本。",
+                        "应用顺序后，DOCX 会提供原顺序版和调整顺序版。调整顺序版会尝试在原文件中移动完整模块，并保留原模板。",
                         color = Muted,
                         fontSize = 11.sp,
                         lineHeight = 17.sp
@@ -749,7 +749,7 @@ private fun AnalysisTab(
                         onClick = viewModel::applySuggestedSectionOrder,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("应用到重新排版版本")
+                        Text("应用模块顺序")
                     }
                 }
             }
@@ -1377,7 +1377,7 @@ private fun FactAuditCard(project: ResumeProject) {
     val context = LocalContext.current
     AnalysisSection("事实核验") {
         Text(
-            "以下内容只写入内部审核报告，不会自动附到客户交付版 DOCX 和 PDF。",
+            "以下内容用于内部检查，不会写入最终简历 DOCX。",
             color = Muted,
             fontSize = 12.sp,
             lineHeight = 18.sp
@@ -1485,7 +1485,7 @@ private fun FullPreviewTab(project: ResumeProject) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("完整内容预览", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Text(
-                        "这里按最终采用状态合并所有章节。手机高度与实际 A4 分页不同，导出前仍应检查 Word 或 PDF 的分页。",
+                        "这里按最终采用状态合并所有章节。导出的 DOCX 分页仍建议用 Word 检查。",
                         color = Color(0xFF77551B),
                         fontSize = 11.sp,
                         lineHeight = 17.sp
@@ -1584,7 +1584,7 @@ private fun OriginalLayoutTab(project: ResumeProject, viewModel: MainViewModel, 
                     )
                 } else {
                     Text(
-                        "先生成逐段修改预览，再检查每一段；确认后到导出页生成原版式修订稿。原版式模式下只替换文字，不调整章节顺序。",
+                        "先生成逐段修改预览，再检查每一段；确认后到导出页生成 DOCX。应用模块顺序后，会额外生成调整顺序版。",
                         color = Muted,
                         fontSize = 12.sp,
                         lineHeight = 18.sp
@@ -1823,12 +1823,12 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
                     Icon(Icons.Outlined.Description, contentDescription = null, tint = Moss)
                     Text("交付前检查", fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        "客户主交付文件只有可编辑 DOCX 和 PDF，不包含诊断、核实清单、溯源表或内部备注。",
+                        "导出只生成客户要用的 DOCX，不包含诊断、核实清单、溯源表或内部备注。",
                         color = Muted,
                         lineHeight = 20.sp
                     )
                     Text(
-                        "修改报告、核实清单和数据溯源表属于内部过程文件。原件备份和原版式对照稿也不会自动当作客户最终稿。",
+                        "应用模板生成的文件可以直接编辑；DOCX 原模板修订会保留照片和原有版式。",
                         color = Muted,
                         fontSize = 12.sp,
                         lineHeight = 18.sp
@@ -1849,15 +1849,26 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
                     }
                     if (sourceIsDocx && project.layoutRevision.isEmpty()) {
                         Text(
-                            "尚未生成原版式逐段修改。现在导出会得到重新排版版和原版式对照稿；如需保留照片和原模板最终稿，请先到“原版式修订”页生成预览。",
+                            "请先到“原版式修订”页生成并检查逐段修改预览。导出后只生成保留原模板的 DOCX。",
                             color = Amber,
                             fontSize = 12.sp,
                             lineHeight = 18.sp
                         )
                     } else if (sourceIsDocx) {
                         Text(
-                            "已准备 ${project.layoutRevision.size} 处原版式文字修改。导出后会生成保留照片和原模板的“原版式修订稿”。",
+                            if (project.sectionOrderApplied) {
+                                "已准备 ${project.layoutRevision.size} 处文字修改。导出会生成原顺序版和调整顺序版两个 DOCX，均沿用原模板；若无法可靠识别模块边界，会提示原因。"
+                            } else {
+                                "已准备 ${project.layoutRevision.size} 处文字修改。导出只生成一个保留原模板和原顺序的 DOCX。"
+                            },
                             color = Moss,
+                            fontSize = 12.sp,
+                            lineHeight = 18.sp
+                        )
+                    } else {
+                        Text(
+                            "当前来源不是 DOCX，将按应用模板生成一个可编辑 DOCX，不额外生成 PDF。",
+                            color = Muted,
                             fontSize = 12.sp,
                             lineHeight = 18.sp
                         )
@@ -1907,7 +1918,8 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
         item {
             Button(
                 onClick = onExport,
-                enabled = project.acceptedSections.isNotEmpty(),
+                enabled = project.acceptedSections.isNotEmpty() &&
+                    (!sourceIsDocx || project.layoutRevision.isNotEmpty()),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -1921,58 +1933,22 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
         if (export != null) {
             item {
                 AnalysisSection("最近一次导出") {
-                    ExportFileRow(export.docx.name)
-                    ExportFileRow(export.pdf.name)
-                    export.originalLayoutDocx?.let {
-                        ExportFileRow(
-                            if (export.originalLayoutIsFinal) "原版式修订稿：${it.name}" else "对照稿：${it.name}"
-                        )
+                    export.warning?.let {
+                        Text(it, color = Amber, fontSize = 12.sp, lineHeight = 18.sp)
                     }
-                    ExportFileRow("内部报告：${export.report.name}")
-                    export.original?.let { ExportFileRow(it.name) }
-                    Button(
-                        onClick = {
-                            shareFiles(
-                                context,
-                                listOf(export.docx, export.pdf)
+                    export.files.forEachIndexed { index, file ->
+                        ExportFileRow(file.name)
+                        Button(
+                            onClick = { shareFiles(context, listOf(file)) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (index == 0) Moss else Color(0xFF526C78)
                             )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Moss)
-                    ) {
-                        Icon(Icons.Outlined.IosShare, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("分享重新排版版 DOCX 和 PDF")
-                    }
-                    if (export.originalLayoutIsFinal && export.originalLayoutDocx != null) {
-                        OutlinedButton(
-                            onClick = { shareFiles(context, listOf(export.originalLayoutDocx)) },
-                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(Icons.Outlined.IosShare, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            Text("分享原版式修订稿")
+                            Text(if (index == 0) "分享修订版" else "分享调整顺序修订版")
                         }
-                    } else if (export.originalLayoutDocx != null || export.original != null) {
-                        OutlinedButton(
-                            onClick = {
-                                shareFiles(
-                                    context,
-                                    listOfNotNull(export.originalLayoutDocx, export.original)
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("分享原件或原版式对照稿")
-                        }
-                    }
-                    OutlinedButton(
-                        onClick = { shareFiles(context, listOf(export.report)) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Outlined.IosShare, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("只分享内部报告")
                     }
                 }
             }
