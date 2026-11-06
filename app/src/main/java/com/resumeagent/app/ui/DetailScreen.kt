@@ -1917,9 +1917,12 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
         }
         item {
             Button(
-                onClick = onExport,
-                enabled = project.acceptedSections.isNotEmpty() &&
-                    (!sourceIsDocx || project.layoutRevision.isNotEmpty()),
+                onClick = if (sourceIsDocx && project.layoutRevision.isEmpty()) {
+                    viewModel::prepareOriginalLayoutRevision
+                } else {
+                    onExport
+                },
+                enabled = project.acceptedSections.isNotEmpty(),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
@@ -1927,7 +1930,14 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
             ) {
                 Icon(Icons.Outlined.IosShare, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("生成交付文件", fontWeight = FontWeight.Bold)
+                Text(
+                    if (sourceIsDocx && project.layoutRevision.isEmpty()) {
+                        "先生成原版式修改预览"
+                    } else {
+                        "生成修订版 DOCX"
+                    },
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
         if (export != null) {
