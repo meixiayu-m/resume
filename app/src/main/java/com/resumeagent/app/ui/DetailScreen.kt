@@ -222,7 +222,8 @@ fun DetailScreen(
                 TAB_EXPORT -> ExportTab(
                     project = project,
                     export = state.lastExport,
-                    onExport = viewModel::exportProject
+                    onExport = viewModel::exportProject,
+                    onPrepareLayout = viewModel::prepareOriginalLayoutRevision
                 )
                 else -> SourceTab(project = project, viewModel = viewModel)
             }
@@ -1798,7 +1799,12 @@ private fun VersionBadge(label: String) {
 }
 
 @Composable
-private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: () -> Unit) {
+private fun ExportTab(
+    project: ResumeProject,
+    export: ExportBundle?,
+    onExport: () -> Unit,
+    onPrepareLayout: () -> Unit
+) {
     val context = LocalContext.current
     val placeholderCount = project.acceptedSections.sumOf { section ->
         Regex("待补充").findAll(section.content).count()
@@ -1918,7 +1924,7 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
         item {
             Button(
                 onClick = if (sourceIsDocx && project.layoutRevision.isEmpty()) {
-                    viewModel::prepareOriginalLayoutRevision
+                    onPrepareLayout
                 } else {
                     onExport
                 },
