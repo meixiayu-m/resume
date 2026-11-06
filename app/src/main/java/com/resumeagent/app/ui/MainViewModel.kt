@@ -533,20 +533,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun applySuggestedSectionOrder() {
         val project = _state.value.selectedProject ?: return
-        val suggested = project.analysis?.recommendedSectionOrder.orEmpty()
+        val analysis = project.analysis ?: return
+        val suggested = analysis.recommendedSectionOrder
+        if (!analysis.shouldReorderSections) return
         if (suggested.isEmpty() || project.draftSections.isEmpty()) return
-        val originalIndex = project.draftSections.withIndex().associate { it.value.id to it.index }
-        val reordered = project.draftSections.sortedWith(
-            compareBy(
-                {
-                    suggested.indexOfFirst { name ->
-                        it.title.contains(name, ignoreCase = true) ||
-                            name.contains(it.title, ignoreCase = true)
-                    }.takeIf { index -> index >= 0 } ?: Int.MAX_VALUE
-                },
-                { originalIndex[it.id] ?: Int.MAX_VALUE }
-            )
-        )
+        val normalizedSuggested = suggested.map(::normalizeSectionTitle)
+        if (normalizedSuggested.distinct().size != normalizedSuggested.size) {
+            showError("顺序建议中有重复章节，请重新诊断后再试")
+            return
+        }
+        val positions = project.draftSections.map { section ->
+            val title = normalizeSectionTitle(section.title)
+            normalizedSuggested.indexOfFirst { suggestedTitle ->
+                suggestedTitle == title || suggestedTitle.contains(title) || title.contains(suggestedTitle)
+            }
+        }
+        if (positions.any { it < 0 } || positions.distinct().size != positions.size || positions.size != suggested.size) {
+            showError("顺序建议无法和当前简历章节一一对应，没有应用调整")
+            return
+        }
+        val reordered = project.draftSections.zip(positions)
+            .sortedBy { it.second }
+            .map { it.first }
+        if (reordered.map { it.id } == project.draftSections.map { it.id }) {
+            showError("当前章节顺序已经符合建议，无需调整")
+            return
+        }
         persist(
             syncActiveVersion(
                 project.copy(
@@ -558,6 +570,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             null
         )
     }
+
+    private fun normalizeSectionTitle(value: String): String = value
+        .replace(Regex("[\\s:：|｜·•、，。()（）【】\\[\\]{}_-]+"), "")
+        .lowercase()
 
     fun prepareOriginalLayoutRevision() {
         val project = _state.value.selectedProject ?: return
@@ -576,7 +592,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         runJob("正在逐段准备原 DOCX 修订…") {
             val paragraphs = layoutEditor.extractParagraphs(source)
-            val rawEdits = aiClient.rewriteLayout(project, paragraphs)
+            val rawEdits = aiClient.rewriteLayout(project, paragraphs, project.acceptedSections)
             val candidates = rawEdits.map {
                 DraftSection(
                     title = "P${it.index}",
@@ -591,6 +607,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .mapNotNull { it.title.removePrefix("P").toIntOrNull() }
                 .toSet()
             val safeEdits = rawEdits.filter { it.index in acceptedIndexes }
+            require(safeEdits.isNotEmpty()) {
+                "没有找到可安全对应到原 DOCX 的修改段落。为避免导出看起来未修改的文件，请检查逐段预览或使用应用模板 DOCX。"
+            }
             val updated = syncActiveVersion(
                 project.copy(
                     layoutRevision = safeEdits,

@@ -53,6 +53,7 @@ data class ResumeAnalysis(
     val missingQuestions: List<String>,
     val jobKeywords: List<String>,
     val clientQuestionMessage: String = "",
+    val shouldReorderSections: Boolean = false,
     val recommendedSectionOrder: List<String> = emptyList(),
     val sectionOrderAdvice: String = "",
     val riskWarnings: List<String> = emptyList()

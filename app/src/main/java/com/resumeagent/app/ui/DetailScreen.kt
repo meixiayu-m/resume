@@ -722,35 +722,52 @@ private fun AnalysisTab(
                 }
             }
         }
-        if (analysis.recommendedSectionOrder.isNotEmpty()) {
+        if (project.draftSections.isNotEmpty() || analysis.recommendedSectionOrder.isNotEmpty()) {
             item {
                 AnalysisSection("章节顺序建议") {
-                    Text(
-                        analysis.sectionOrderAdvice.ifBlank {
-                            "建议先放最能证明岗位匹配的经历。"
-                        },
-                        color = Ink,
-                        fontSize = 13.sp,
-                        lineHeight = 20.sp
-                    )
-                    Text(
-                        analysis.recommendedSectionOrder.joinToString(" → "),
-                        color = Moss,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        lineHeight = 20.sp
-                    )
-                    Text(
-                        "应用顺序后，DOCX 会提供原顺序版和调整顺序版。调整顺序版会尝试在原文件中移动完整模块，并保留原模板。",
-                        color = Muted,
-                        fontSize = 11.sp,
-                        lineHeight = 17.sp
-                    )
-                    OutlinedButton(
-                        onClick = viewModel::applySuggestedSectionOrder,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("应用模块顺序")
+                    if (project.draftSections.isNotEmpty()) {
+                        Text("当前预览顺序", color = Muted, fontSize = 11.sp)
+                        Text(
+                            project.draftSections.joinToString(" → ") { it.title },
+                            color = Ink,
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp
+                        )
+                    }
+                    if (analysis.shouldReorderSections && analysis.recommendedSectionOrder.isNotEmpty()) {
+                        Text(
+                            analysis.sectionOrderAdvice,
+                            color = Ink,
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp
+                        )
+                        Text("建议顺序", color = Muted, fontSize = 11.sp)
+                        Text(
+                            analysis.recommendedSectionOrder.joinToString(" → "),
+                            color = Moss,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            lineHeight = 20.sp
+                        )
+                        Text(
+                            "应用后完整预览会按新顺序显示。导出仍保留原顺序版，并尝试生成沿用原模板的调整顺序版。",
+                            color = Muted,
+                            fontSize = 11.sp,
+                            lineHeight = 17.sp
+                        )
+                        OutlinedButton(
+                            onClick = viewModel::applySuggestedSectionOrder,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("应用模块顺序")
+                        }
+                    } else {
+                        Text(
+                            "当前顺序没有明显影响岗位重点的问题，暂时无需调整。",
+                            color = Muted,
+                            fontSize = 13.sp,
+                            lineHeight = 20.sp
+                        )
                     }
                 }
             }

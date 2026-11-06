@@ -44,11 +44,22 @@ class AiClient(private val settings: SecureSettings) {
         val json = runCatching { AiResultParser.objectFrom(response) }
             .getOrElse { error("AI 返回的诊断结果无法解析，请重试或更换文本模型") }
         val decoded = ProjectJson.decodeAnalysis(json)
-        val analysis = if (project.optimizationMode == OptimizationMode.GENERAL) {
-            decoded.copy(jobKeywords = emptyList())
-        } else {
-            decoded
-        }
+        val hasActionableOrderAdvice = decoded.shouldReorderSections &&
+            decoded.recommendedSectionOrder.isNotEmpty() && decoded.sectionOrderAdvice.isNotBlank()
+        val analysis = decoded.copy(
+            jobKeywords = if (project.optimizationMode == OptimizationMode.GENERAL) {
+                emptyList()
+            } else {
+                decoded.jobKeywords
+            },
+            shouldReorderSections = hasActionableOrderAdvice,
+            recommendedSectionOrder = decoded.recommendedSectionOrder.takeIf {
+                hasActionableOrderAdvice
+            }.orEmpty(),
+            sectionOrderAdvice = decoded.sectionOrderAdvice.takeIf {
+                hasActionableOrderAdvice
+            }.orEmpty()
+        )
         require(analysis.fitSummary.isNotBlank()) { "AI 没有返回适配度结论" }
         require(analysis.dimensions.isNotEmpty()) { "AI 没有返回诊断维度" }
         return analysis
@@ -167,7 +178,8 @@ ${sections.joinToString("\n\n") { "章节：${it.title}\n${it.content}\n原文�
 
     suspend fun rewriteLayout(
         project: ResumeProject,
-        paragraphs: List<DocxParagraph>
+        paragraphs: List<DocxParagraph>,
+        approvedSections: List<DraftSection>
     ): List<ParagraphRevision> {
         val response = complete(
             kind = RequestKind.TEXT,
@@ -177,6 +189,9 @@ ${buildProjectContext(project, project.factLedger)}
 
 原 DOCX 可编辑段落：
 ${paragraphs.joinToString("\n") { "[P${it.index}] ${it.text}" }}
+
+用户已审核并采用的最终章节内容（这是改写目标；不得另起一套改写，也不得加入未被采用的内容）：
+${approvedSections.joinToString("\n\n") { "章节：${it.title}\n${it.content}" }}
 """.trimIndent()
         )
         val json = AiResultParser.objectFrom(response)
@@ -483,7 +498,7 @@ ${ledger.ifBlank { "事实账本为空。不得自行补充事实。" }}
 7. 不得建议添加原简历没有依据的数字、职级、团队规模、项目归属或成果。
 8. 输出不使用 emoji 和感叹号。
 9. 不要把出生日期、年龄、性别、婚育、民族、身份证号、邮箱、手机号、住址和照片列为需要客户核实的内容。它们是联系方式或身份信息，除非同一份材料内存在明显矛盾，否则不进入 missingQuestions、clientQuestionMessage 或 riskWarnings。
-10. 检查章节顺序是否合理，并在 recommendedSectionOrder 中给出简短的推荐顺序。建议必须说明为什么，但原版式修订会保留原顺序。
+10. 有目标岗位时，只有当前顺序明显埋没岗位最相关的经历、且调整能实质改善阅读重点才建议调整；通用模式只在顺序明显影响可读性时建议。常见顺序或个人偏好不足以构成理由。只有能给出明确理由和完整章节顺序时 shouldReorderSections 才为 true，否则返回 false 并将顺序及理由留空。
 """.trimIndent()
 
         private val ANALYSIS_TARGETED_INSTRUCTION = """
@@ -514,8 +529,9 @@ ${ledger.ifBlank { "事实账本为空。不得自行补充事实。" }}
   "missingQuestions": ["3到6个通俗、独立、客户通常能回答的问题"],
   "jobKeywords": ["仅按当前模式规则返回"],
   "clientQuestionMessage": "可直接发给客户的真人沟通消息",
-  "recommendedSectionOrder": ["建议的章节顺序，如个人简介、工作经历、项目经历、教育经历"],
-  "sectionOrderAdvice": "一到两句话说明为什么建议这个顺序；原版式修订不会自动移动章节",
+  "shouldReorderSections": false,
+  "recommendedSectionOrder": ["仅在确有必要时列出简历中已有章节的完整新顺序，每个现有章节恰好一次，不得新增章节"],
+  "sectionOrderAdvice": "仅在 shouldReorderSections 为 true 时，用一到两句说明当前顺序的问题和调整收益，否则留空",
   "riskWarnings": ["时间线、职级、真实性、ATS可读性等风险"]
 }
 """.trimIndent()
@@ -602,16 +618,17 @@ changeNote 最多两句话，只说明这次为什么改；benefit 最多一句�
 """.trimIndent()
 
         private val LAYOUT_REWRITE_PROMPT = """
-你是原 Word 简历的逐段文字编辑。必须保留客户原来的章节顺序和版式，只对需要修改的段落给出替换文本。
+你是原 Word 简历的逐段文字编辑。必须保留客户原来的章节顺序和版式，把用户已审核并采用的最终章节内容落实到对应原文段落中。
 
 规则：
 1. 只能使用输入简历、客户补充和事实账本中存在的事实。
 2. 不编造数字、职级、团队规模、项目归属、成果或技能。
 3. 不把参与、协助、配合升级为主导、负责、牵头、独立完成。
-4. 每个段落只做调整语序、删除空话和正式化表达。
-5. 不需要改的段落不要返回。
-6. 原版式模式只替换文字，不删除整个段落。需要删除内容时在重新排版模式处理。
-7. reason 最多两句话，benefit 最多一句话。
+4. 以用户已审核并采用的最终章节内容为唯一改写目标。根据章节标题和原文内容，将目标内容分配到最对应的原文段落；不得只按自己的判断做轻微润色而忽略已审核稿。已审核稿中有原文没有的已核实内容时，只能放入可明确对应的原有段落。
+5. 已审核稿与原文含义一致的段落可以不改；如章节或句子无法可靠对应，不要猜测映射，也不要把内容写到错误段落。
+6. 不需要改的段落不要返回。
+7. 原版式模式只替换文字，不删除整个段落。需要删除内容时在重新排版模式处理。
+8. reason 最多两句话，benefit 最多一句话。
 
 只返回 JSON：
 {"paragraphs":[{"index":1,"action":"CHANGE","revised":"修改后的段落文字","reason":"为什么改","benefit":"具体收益"}]}

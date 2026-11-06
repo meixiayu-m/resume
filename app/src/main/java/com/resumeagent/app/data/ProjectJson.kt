@@ -134,6 +134,7 @@ object ProjectJson {
         .put("missingQuestions", JSONArray(analysis.missingQuestions))
         .put("jobKeywords", JSONArray(analysis.jobKeywords))
         .put("clientQuestionMessage", analysis.clientQuestionMessage)
+        .put("shouldReorderSections", analysis.shouldReorderSections)
         .put("recommendedSectionOrder", JSONArray(analysis.recommendedSectionOrder))
         .put("sectionOrderAdvice", analysis.sectionOrderAdvice)
         .put("riskWarnings", JSONArray(analysis.riskWarnings))
@@ -161,6 +162,7 @@ object ProjectJson {
         missingQuestions = json.optJSONArray("missingQuestions").toStringList(),
         jobKeywords = json.optJSONArray("jobKeywords").toStringList(),
         clientQuestionMessage = json.optString("clientQuestionMessage"),
+        shouldReorderSections = json.optBoolean("shouldReorderSections"),
         recommendedSectionOrder = json.optJSONArray("recommendedSectionOrder").toStringList(),
         sectionOrderAdvice = json.optString("sectionOrderAdvice"),
         riskWarnings = json.optJSONArray("riskWarnings").toStringList()

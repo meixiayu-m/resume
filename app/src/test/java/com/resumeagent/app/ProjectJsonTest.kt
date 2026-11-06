@@ -10,6 +10,7 @@ import com.resumeagent.app.domain.RuleCheck
 import com.resumeagent.app.domain.SeniorityLevel
 import com.resumeagent.app.domain.TraceabilityEntry
 import com.resumeagent.app.domain.ProjectVersion
+import com.resumeagent.app.domain.ResumeAnalysis
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -24,6 +25,18 @@ class ProjectJsonTest {
             jobDescription = "负责需求分析。",
             optimizationMode = OptimizationMode.TARGETED,
             seniorityLevel = SeniorityLevel.MID,
+            analysis = ResumeAnalysis(
+                overallScore = 80,
+                fitSummary = "经历相关",
+                dimensions = emptyList(),
+                strengths = emptyList(),
+                issues = emptyList(),
+                missingQuestions = emptyList(),
+                jobKeywords = emptyList(),
+                shouldReorderSections = true,
+                recommendedSectionOrder = listOf("项目经历", "工作经历"),
+                sectionOrderAdvice = "岗位项目经验被放得过后。"
+            ),
             factLedger = listOf(FactClaim(quote = "参与需求分析。")),
             ruleChecks = listOf(RuleCheck("联系方式", false, "缺少联系方式")),
             draftSections = listOf(
@@ -71,6 +84,8 @@ class ProjectJsonTest {
         assertEquals("核实团队规模", decoded.verificationChecklist.single())
         assertEquals("有原文依据", decoded.traceability.single().status)
         assertEquals(OptimizationMode.TARGETED, decoded.optimizationMode)
+        assertTrue(decoded.analysis?.shouldReorderSections == true)
+        assertEquals(listOf("项目经历", "工作经历"), decoded.analysis?.recommendedSectionOrder)
         assertEquals(SeniorityLevel.MID, decoded.seniorityLevel)
         assertEquals("参与需求分析。", decoded.factLedger.single().quote)
         assertEquals("缺少联系方式", decoded.ruleChecks.single().detail)
