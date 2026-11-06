@@ -53,6 +53,8 @@ data class ResumeAnalysis(
     val missingQuestions: List<String>,
     val jobKeywords: List<String>,
     val clientQuestionMessage: String = "",
+    val recommendedSectionOrder: List<String> = emptyList(),
+    val sectionOrderAdvice: String = "",
     val riskWarnings: List<String> = emptyList()
 )
 
@@ -89,6 +91,21 @@ data class RuleCheck(
     val detail: String
 )
 
+enum class ParagraphAction {
+    KEEP,
+    CHANGE,
+    DELETE
+}
+
+data class ParagraphRevision(
+    val index: Int,
+    val original: String,
+    val revised: String = "",
+    val action: ParagraphAction = ParagraphAction.KEEP,
+    val reason: String = "",
+    val benefit: String = ""
+)
+
 data class ProjectVersion(
     val id: String = UUID.randomUUID().toString(),
     val label: String,
@@ -101,7 +118,8 @@ data class ProjectVersion(
     val verificationChecklist: List<String> = emptyList(),
     val traceability: List<TraceabilityEntry> = emptyList(),
     val secondReviewFindings: List<String> = emptyList(),
-    val secondReviewProvider: String = ""
+    val secondReviewProvider: String = "",
+    val layoutRevision: List<ParagraphRevision> = emptyList()
 )
 
 data class ProjectInput(
@@ -145,6 +163,7 @@ data class ResumeProject(
     val traceability: List<TraceabilityEntry> = emptyList(),
     val secondReviewFindings: List<String> = emptyList(),
     val secondReviewProvider: String = "",
+    val layoutRevision: List<ParagraphRevision> = emptyList(),
     val versions: List<ProjectVersion> = emptyList(),
     val activeVersionId: String? = null,
     val finalVersionId: String? = null,

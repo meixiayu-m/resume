@@ -4,6 +4,8 @@ import com.resumeagent.app.domain.DraftSection
 import com.resumeagent.app.domain.FactClaim
 import com.resumeagent.app.domain.IssueSeverity
 import com.resumeagent.app.domain.OptimizationMode
+import com.resumeagent.app.domain.ParagraphAction
+import com.resumeagent.app.domain.ParagraphRevision
 import com.resumeagent.app.domain.ProjectStage
 import com.resumeagent.app.domain.ProjectVersion
 import com.resumeagent.app.domain.ResumeAnalysis
@@ -51,6 +53,9 @@ object ProjectJson {
         })
         .put("secondReviewFindings", JSONArray(project.secondReviewFindings))
         .put("secondReviewProvider", project.secondReviewProvider)
+        .put("layoutRevision", JSONArray().apply {
+            project.layoutRevision.forEach { put(encodeParagraphRevision(it)) }
+        })
         .put("versions", JSONArray().apply {
             project.versions.forEach { put(encodeVersion(it)) }
         })
@@ -92,6 +97,8 @@ object ProjectJson {
             traceability = json.optJSONArray("traceability").toObjectList(::decodeTraceability),
             secondReviewFindings = json.optJSONArray("secondReviewFindings").toStringList(),
             secondReviewProvider = json.optString("secondReviewProvider"),
+            layoutRevision = json.optJSONArray("layoutRevision")
+                .toObjectList(::decodeParagraphRevision),
             versions = json.optJSONArray("versions").toObjectList(::decodeVersion),
             activeVersionId = json.optString("activeVersionId")
                 .takeIf { it.isNotBlank() && it != "null" },
@@ -125,6 +132,8 @@ object ProjectJson {
         .put("missingQuestions", JSONArray(analysis.missingQuestions))
         .put("jobKeywords", JSONArray(analysis.jobKeywords))
         .put("clientQuestionMessage", analysis.clientQuestionMessage)
+        .put("recommendedSectionOrder", JSONArray(analysis.recommendedSectionOrder))
+        .put("sectionOrderAdvice", analysis.sectionOrderAdvice)
         .put("riskWarnings", JSONArray(analysis.riskWarnings))
 
     fun decodeAnalysis(json: JSONObject): ResumeAnalysis = ResumeAnalysis(
@@ -150,6 +159,8 @@ object ProjectJson {
         missingQuestions = json.optJSONArray("missingQuestions").toStringList(),
         jobKeywords = json.optJSONArray("jobKeywords").toStringList(),
         clientQuestionMessage = json.optString("clientQuestionMessage"),
+        recommendedSectionOrder = json.optJSONArray("recommendedSectionOrder").toStringList(),
+        sectionOrderAdvice = json.optString("sectionOrderAdvice"),
         riskWarnings = json.optJSONArray("riskWarnings").toStringList()
     )
 
@@ -236,6 +247,9 @@ object ProjectJson {
         })
         .put("secondReviewFindings", JSONArray(version.secondReviewFindings))
         .put("secondReviewProvider", version.secondReviewProvider)
+        .put("layoutRevision", JSONArray().apply {
+            version.layoutRevision.forEach { put(encodeParagraphRevision(it)) }
+        })
 
     fun decodeVersion(json: JSONObject): ProjectVersion = ProjectVersion(
         id = json.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
@@ -249,7 +263,27 @@ object ProjectJson {
         verificationChecklist = json.optJSONArray("verificationChecklist").toStringList(),
         traceability = json.optJSONArray("traceability").toObjectList(::decodeTraceability),
         secondReviewFindings = json.optJSONArray("secondReviewFindings").toStringList(),
-        secondReviewProvider = json.optString("secondReviewProvider")
+        secondReviewProvider = json.optString("secondReviewProvider"),
+        layoutRevision = json.optJSONArray("layoutRevision")
+            .toObjectList(::decodeParagraphRevision)
+    )
+
+    fun encodeParagraphRevision(revision: ParagraphRevision): JSONObject = JSONObject()
+        .put("index", revision.index)
+        .put("original", revision.original)
+        .put("revised", revision.revised)
+        .put("action", revision.action.name)
+        .put("reason", revision.reason)
+        .put("benefit", revision.benefit)
+
+    fun decodeParagraphRevision(json: JSONObject): ParagraphRevision = ParagraphRevision(
+        index = json.optInt("index"),
+        original = json.optString("original"),
+        revised = json.optString("revised"),
+        action = runCatching { ParagraphAction.valueOf(json.optString("action")) }
+            .getOrDefault(ParagraphAction.KEEP),
+        reason = json.optString("reason"),
+        benefit = json.optString("benefit")
     )
 
     private inline fun <reified T : Enum<T>> String.toEnum(fallback: T): T =

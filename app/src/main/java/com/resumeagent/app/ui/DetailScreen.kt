@@ -78,6 +78,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -104,6 +108,7 @@ import java.util.Locale
 private const val TAB_SOURCE = "source"
 private const val TAB_ANALYSIS = "analysis"
 private const val TAB_REWRITE = "rewrite"
+private const val TAB_LAYOUT = "layout"
 private const val TAB_VERSIONS = "versions"
 private const val TAB_EXPORT = "export"
 
@@ -189,12 +194,19 @@ fun DetailScreen(
             when (tab) {
                 TAB_ANALYSIS -> AnalysisTab(
                     project = project,
+                    viewModel = viewModel,
                     onGoRewrite = { tab = TAB_REWRITE }
                 )
                 TAB_REWRITE -> RewriteTab(
                     project = project,
                     viewModel = viewModel,
                     onExport = { tab = TAB_EXPORT }
+                )
+                TAB_LAYOUT -> OriginalLayoutTab(
+                    project = project,
+                    viewModel = viewModel,
+                    locked = project.activeVersionId != null &&
+                        project.activeVersionId == project.finalVersionId
                 )
                 TAB_VERSIONS -> VersionsTab(
                     project = project,
@@ -326,6 +338,7 @@ private fun WorkTabs(
         WorkTab("原简历", selected == TAB_SOURCE) { onSelect(TAB_SOURCE) }
         WorkTab("诊断", selected == TAB_ANALYSIS, enabled = hasAnalysis) { onSelect(TAB_ANALYSIS) }
         WorkTab("改写审核", selected == TAB_REWRITE, enabled = hasDraft) { onSelect(TAB_REWRITE) }
+        WorkTab("原版式修订", selected == TAB_LAYOUT, enabled = hasDraft) { onSelect(TAB_LAYOUT) }
         WorkTab("版本历史", selected == TAB_VERSIONS, enabled = hasDraft) { onSelect(TAB_VERSIONS) }
         WorkTab("导出", selected == TAB_EXPORT, enabled = hasDraft) { onSelect(TAB_EXPORT) }
     }
@@ -631,7 +644,11 @@ private fun SourceTab(project: ResumeProject, viewModel: MainViewModel) {
 }
 
 @Composable
-private fun AnalysisTab(project: ResumeProject, onGoRewrite: () -> Unit) {
+private fun AnalysisTab(
+    project: ResumeProject,
+    viewModel: MainViewModel,
+    onGoRewrite: () -> Unit
+) {
     val context = LocalContext.current
     val analysis = project.analysis
     if (analysis == null) {
@@ -696,6 +713,39 @@ private fun AnalysisTab(project: ResumeProject, onGoRewrite: () -> Unit) {
                     }
                     if (project.factLedger.size > 40) {
                         Text("其余 ${project.factLedger.size - 40} 条已保存，不在此处展开。", color = Muted, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+        if (analysis.recommendedSectionOrder.isNotEmpty()) {
+            item {
+                AnalysisSection("章节顺序建议") {
+                    Text(
+                        analysis.sectionOrderAdvice.ifBlank {
+                            "建议先放最能证明岗位匹配的经历。"
+                        },
+                        color = Ink,
+                        fontSize = 13.sp,
+                        lineHeight = 20.sp
+                    )
+                    Text(
+                        analysis.recommendedSectionOrder.joinToString(" → "),
+                        color = Moss,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 20.sp
+                    )
+                    Text(
+                        "原版式修订会保持客户原始段落顺序。这里的重排只用于重新排版版本。",
+                        color = Muted,
+                        fontSize = 11.sp,
+                        lineHeight = 17.sp
+                    )
+                    OutlinedButton(
+                        onClick = viewModel::applySuggestedSectionOrder,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("应用到重新排版版本")
                     }
                 }
             }
@@ -1018,7 +1068,8 @@ private fun SectionEditorCard(
     onMoveDown: () -> Unit
 ) {
     var content by remember(section.id, section.content) { mutableStateOf(section.content) }
-    var showDiff by remember(section.id) { mutableStateOf(false) }
+    var showAdvanced by remember(section.id) { mutableStateOf(false) }
+    var editing by remember(section.id) { mutableStateOf(false) }
     val latestContent by rememberUpdatedState(content)
     DisposableEffect(section.id) {
         onDispose {
@@ -1087,27 +1138,54 @@ private fun SectionEditorCard(
                     selected = !section.accepted,
                     onClick = { onDecision(false, false) },
                     enabled = !locked,
-                    label = { Text("不导出") }
+                    label = { Text("从最终稿移除") }
                 )
             }
-            if (section.changeNote.isNotBlank()) {
-                Surface(
-                    color = Color(0xFFF0F5F2),
-                    shape = RoundedCornerShape(10.dp)
+            ReviewTextBlock(
+                label = "原文",
+                text = section.originalContent.ifBlank { section.sourceEvidence },
+                compareWith = content,
+                background = Color(0xFFF2F0EA),
+                highlightColor = Color(0xFFFFE0D4)
+            )
+            if (section.accepted && section.keepOriginal) {
+                ReviewTextBlock(
+                    label = "最终稿使用原文",
+                    text = section.originalContent.ifBlank { section.sourceEvidence },
+                    compareWith = content,
+                    background = Color(0xFFE8F1ED),
+                    highlightColor = Color.Transparent
+                )
+            } else {
+                ReviewTextBlock(
+                    label = "改写后",
+                    text = content,
+                    compareWith = section.originalContent.ifBlank { section.sourceEvidence },
+                    background = Color(0xFFF0F5F2),
+                    highlightColor = Color(0xFFCDEBDD)
+                )
+                TextButton(
+                    onClick = { editing = !editing },
+                    enabled = !locked && section.accepted
                 ) {
-                    Text(
-                        "修改说明：${section.changeNote}",
-                        modifier = Modifier.padding(10.dp),
-                        color = MossDark,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp
+                    Text(if (editing) "收起编辑" else "编辑改写文字")
+                }
+                if (editing && section.accepted) {
+                    OutlinedTextField(
+                        value = content,
+                        onValueChange = { content = it },
+                        enabled = !locked,
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 4,
+                        maxLines = 20,
+                        shape = RoundedCornerShape(12.dp)
                     )
                 }
             }
-            if (section.benefit.isNotBlank()) {
+            if (section.changeNote.isNotBlank()) {
                 Text(
-                    "修改收益：${section.benefit}",
-                    color = Moss,
+                    "修改原因：${limitReason(section.changeNote)}",
+                    color = Ink,
                     fontSize = 12.sp,
                     lineHeight = 18.sp
                 )
@@ -1116,33 +1194,52 @@ private fun SectionEditorCard(
                 Surface(
                     color = Color(0xFFFFEFEA),
                     shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, Coral.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("事实风险，需核实后才应采用", color = Coral, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            section.verificationStatus,
-                            color = Ink,
-                            fontSize = 12.sp,
-                            lineHeight = 18.sp
-                        )
-                    }
+                    Text(
+                        "需要核实：${section.verificationStatus}",
+                        modifier = Modifier.padding(10.dp),
+                        color = Coral,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp
+                    )
                 }
             }
-            if (section.sourceEvidence.isNotBlank()) {
-                Text(
-                    "原文依据：${section.sourceEvidence}",
-                    color = Muted,
-                    fontSize = 12.sp,
-                    lineHeight = 18.sp
-                )
+            if (content.contains("待补充")) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Outlined.WarningAmber,
+                        contentDescription = null,
+                        tint = Amber,
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("此处仍需核对或补充事实", color = Amber, fontSize = 12.sp)
+                }
             }
-            TextButton(onClick = { showDiff = !showDiff }) {
-                Text(if (showDiff) "收起逐句对照" else "查看逐句对照")
+            TextButton(onClick = { showAdvanced = !showAdvanced }) {
+                Text(if (showAdvanced) "收起高级信息" else "查看收益、依据和逐句对照")
             }
-            if (showDiff) {
+            if (showAdvanced) {
+                if (limitReason(section.changeNote) != section.changeNote) {
+                    Text(
+                        "完整修改说明：${section.changeNote}",
+                        color = Muted,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp
+                    )
+                }
+                if (section.benefit.isNotBlank()) {
+                    Text("修改收益：${section.benefit}", color = Moss, fontSize = 12.sp)
+                }
+                if (section.sourceEvidence.isNotBlank()) {
+                    Text(
+                        "原文依据：${section.sourceEvidence}",
+                        color = Muted,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp
+                    )
+                }
                 Surface(
                     color = Color(0xFFF4F2EC),
                     shape = RoundedCornerShape(10.dp),
@@ -1150,13 +1247,14 @@ private fun SectionEditorCard(
                 ) {
                     Column(
                         Modifier.padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
+                        Text("逐句变化", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         TextDiffEngine.compare(
                             section.originalContent.ifBlank { section.sourceEvidence },
                             content
-                        )
-                            .take(30)
+                        ).filter { it.kind != DiffKind.SAME }
+                            .take(20)
                             .forEach { line ->
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
@@ -1166,12 +1264,7 @@ private fun SectionEditorCard(
                                             DiffKind.ADDED -> "新增"
                                             DiffKind.REMOVED -> "删除"
                                         },
-                                        color = when (line.kind) {
-                                            DiffKind.SAME -> Muted
-                                            DiffKind.CHANGED -> Amber
-                                            DiffKind.ADDED -> Coral
-                                            DiffKind.REMOVED -> Coral
-                                        },
+                                        color = if (line.kind == DiffKind.CHANGED) Amber else Coral,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -1184,44 +1277,6 @@ private fun SectionEditorCard(
                                 }
                             }
                     }
-                }
-            }
-            if (section.accepted && section.keepOriginal) {
-                Surface(
-                    color = Color(0xFFE8F1ED),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("最终稿将使用以下原文", color = Moss, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            section.originalContent.ifBlank { section.sourceEvidence },
-                            fontSize = 13.sp,
-                            lineHeight = 20.sp
-                        )
-                    }
-                }
-            } else {
-                OutlinedTextField(
-                    value = content,
-                    onValueChange = { content = it },
-                    enabled = !locked && section.accepted,
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 5,
-                    maxLines = 30,
-                    shape = RoundedCornerShape(12.dp)
-                )
-            }
-            if (content.contains("待补充")) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Outlined.WarningAmber,
-                        contentDescription = null,
-                        tint = Amber,
-                        modifier = Modifier.size(17.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text("此处仍需核对或补充事实", color = Amber, fontSize = 12.sp)
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1238,6 +1293,78 @@ private fun SectionEditorCard(
                 ) { Text("保存修改") }
             }
         }
+    }
+}
+
+@Composable
+private fun ReviewTextBlock(
+    label: String,
+    text: String,
+    compareWith: String,
+    background: Color,
+    highlightColor: Color
+) {
+    val highlighted = highlightChangedText(
+        text.ifBlank { "没有可显示的内容" },
+        compareWith,
+        highlightColor
+    )
+    Surface(
+        color = background,
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Muted)
+            Text(
+                highlighted,
+                fontSize = 13.sp,
+                lineHeight = 20.sp
+            )
+        }
+    }
+}
+
+private fun limitReason(value: String): String {
+    val sentences = value.split(Regex("""(?<=[。；;！!？?])"""))
+        .map(String::trim)
+        .filter(String::isNotBlank)
+    return sentences.take(2).joinToString("").ifBlank { value.trim() }
+}
+
+private fun highlightChangedText(
+    text: String,
+    compareWith: String,
+    highlightColor: Color
+): AnnotatedString {
+    if (highlightColor == Color.Transparent || compareWith.isBlank() || text == compareWith) {
+        return AnnotatedString(text)
+    }
+    var prefix = 0
+    while (
+        prefix < text.length &&
+        prefix < compareWith.length &&
+        text[prefix] == compareWith[prefix]
+    ) {
+        prefix++
+    }
+    var suffix = 0
+    while (
+        suffix < text.length - prefix &&
+        suffix < compareWith.length - prefix &&
+        text[text.lastIndex - suffix] == compareWith[compareWith.lastIndex - suffix]
+    ) {
+        suffix++
+    }
+    val changedEnd = text.length - suffix
+    return buildAnnotatedString {
+        append(text.substring(0, prefix))
+        if (changedEnd > prefix) {
+            withStyle(SpanStyle(background = highlightColor)) {
+                append(text.substring(prefix, changedEnd))
+            }
+        }
+        if (suffix > 0) append(text.substring(changedEnd))
     }
 }
 
@@ -1324,6 +1451,99 @@ private fun FactAuditCard(project: ResumeProject) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun OriginalLayoutTab(project: ResumeProject, viewModel: MainViewModel, locked: Boolean) {
+    val isDocx = project.localResumePath?.endsWith(".docx", ignoreCase = true) == true
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            FormSection("原版式修订") {
+                Text(
+                    "直接在客户原 DOCX 的文字段落上替换内容，保留照片、字体、表格、页眉页脚和模板结构。",
+                    color = Ink,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp
+                )
+                if (!isDocx) {
+                    Text(
+                        "当前原简历不是 DOCX，无法在原模板中直接改字。请要求客户提供 DOCX，或使用重新排版版本。",
+                        color = Coral,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp
+                    )
+                } else {
+                    Text(
+                        "先生成逐段修改预览，再检查每一段；确认后到导出页生成原版式修订稿。原版式模式下只替换文字，不调整章节顺序。",
+                        color = Muted,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp
+                    )
+                    Button(
+                        onClick = viewModel::prepareOriginalLayoutRevision,
+                        enabled = project.analysis != null && !locked,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Moss)
+                    ) {
+                        Icon(Icons.Outlined.AutoAwesome, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (project.layoutRevision.isEmpty()) {
+                                "生成逐段修改预览"
+                            } else {
+                                "重新生成逐段修改预览"
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        if (project.layoutRevision.isNotEmpty()) {
+            item {
+                Text(
+                    "预览 ${project.layoutRevision.size} 处文字修改。未列出的段落保持原文。",
+                    color = Moss,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 13.sp
+                )
+            }
+            items(project.layoutRevision, key = { it.index }) { edit ->
+                OutlinedCard(
+                    colors = CardDefaults.outlinedCardColors(containerColor = WarmWhite),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Line),
+                    shape = RoundedCornerShape(15.dp)
+                ) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text("第 ${edit.index} 段", fontWeight = FontWeight.Bold)
+                        Text("原文：${edit.original}", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+                        Text("改为：${edit.revised}", fontSize = 13.sp, lineHeight = 19.sp)
+                        if (edit.reason.isNotBlank()) {
+                            Text("原因：${edit.reason}", fontSize = 12.sp, lineHeight = 18.sp)
+                        }
+                        TextButton(
+                            onClick = { viewModel.removeLayoutRevision(edit.index) },
+                            enabled = !locked
+                        ) {
+                            Text("保留原文", color = if (locked) Muted else Moss)
+                        }
+                    }
+                }
+            }
+        } else if (isDocx && project.analysis != null) {
+            item {
+                Text(
+                    "还没有原版式修改计划。生成预览后，这里会逐段显示原文和改写内容。",
+                    color = Muted,
+                    fontSize = 13.sp
+                )
+            }
+        }
+        item { Spacer(Modifier.height(20.dp)) }
     }
 }
 
@@ -1483,6 +1703,7 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
     }
     val looksLikeSecret = Regex("""sk-[A-Za-z0-9_-]{12,}|Bearer\s+[A-Za-z0-9._-]{12,}""")
         .containsMatchIn(project.resumeText)
+    val sourceIsDocx = project.localResumePath?.endsWith(".docx", ignoreCase = true) == true
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
@@ -1519,6 +1740,21 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
                             "第二模型审核：${project.secondReviewFindings.size} 条，需要逐条查看",
                             color = Coral,
                             fontSize = 13.sp
+                        )
+                    }
+                    if (sourceIsDocx && project.layoutRevision.isEmpty()) {
+                        Text(
+                            "尚未生成原版式逐段修改。现在导出会得到重新排版版和原版式对照稿；如需保留照片和原模板最终稿，请先到“原版式修订”页生成预览。",
+                            color = Amber,
+                            fontSize = 12.sp,
+                            lineHeight = 18.sp
+                        )
+                    } else if (sourceIsDocx) {
+                        Text(
+                            "已准备 ${project.layoutRevision.size} 处原版式文字修改。导出后会生成保留照片和原模板的“原版式修订稿”。",
+                            color = Moss,
+                            fontSize = 12.sp,
+                            lineHeight = 18.sp
                         )
                     }
                     Text(
@@ -1582,7 +1818,11 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
                 AnalysisSection("最近一次导出") {
                     ExportFileRow(export.docx.name)
                     ExportFileRow(export.pdf.name)
-                    export.originalLayoutDocx?.let { ExportFileRow(it.name) }
+                    export.originalLayoutDocx?.let {
+                        ExportFileRow(
+                            if (export.originalLayoutIsFinal) "原版式修订稿：${it.name}" else "对照稿：${it.name}"
+                        )
+                    }
                     ExportFileRow("内部报告：${export.report.name}")
                     export.original?.let { ExportFileRow(it.name) }
                     Button(
@@ -1597,9 +1837,18 @@ private fun ExportTab(project: ResumeProject, export: ExportBundle?, onExport: (
                     ) {
                         Icon(Icons.Outlined.IosShare, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("分享客户主交付文件")
+                        Text("分享重新排版版 DOCX 和 PDF")
                     }
-                    if (export.originalLayoutDocx != null || export.original != null) {
+                    if (export.originalLayoutIsFinal && export.originalLayoutDocx != null) {
+                        OutlinedButton(
+                            onClick = { shareFiles(context, listOf(export.originalLayoutDocx)) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Outlined.IosShare, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("分享原版式修订稿")
+                        }
+                    } else if (export.originalLayoutDocx != null || export.original != null) {
                         OutlinedButton(
                             onClick = {
                                 shareFiles(

@@ -4,6 +4,7 @@ import com.resumeagent.app.data.ProjectJson
 import com.resumeagent.app.domain.DraftSection
 import com.resumeagent.app.domain.FactClaim
 import com.resumeagent.app.domain.OptimizationMode
+import com.resumeagent.app.domain.ParagraphRevision
 import com.resumeagent.app.domain.ResumeProject
 import com.resumeagent.app.domain.RuleCheck
 import com.resumeagent.app.domain.SeniorityLevel
@@ -53,7 +54,15 @@ class ProjectJsonTest {
                 )
             ),
             activeVersionId = "active",
-            finalVersionId = "active"
+            finalVersionId = "active",
+            layoutRevision = listOf(
+                ParagraphRevision(
+                    index = 1,
+                    original = "参与需求分析。",
+                    revised = "参与需求分析，整理业务规则。",
+                    reason = "补充原文已有工作内容"
+                )
+            )
         )
 
         val decoded = ProjectJson.decode(ProjectJson.encode(project))
@@ -68,6 +77,8 @@ class ProjectJsonTest {
         assertEquals("V1", decoded.versions.single().label)
         assertEquals("active", decoded.activeVersionId)
         assertEquals("active", decoded.finalVersionId)
+        assertEquals(1, decoded.layoutRevision.single().index)
+        assertEquals("参与需求分析，整理业务规则。", decoded.layoutRevision.single().revised)
         assertEquals("职责边界保持真实", decoded.draftSections.single().benefit)
         assertEquals("参与需求分析。", decoded.draftSections.single().originalContent)
         assertTrue(decoded.draftSections.single().sourceEvidence.isNotBlank())

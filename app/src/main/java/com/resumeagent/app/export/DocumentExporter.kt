@@ -22,7 +22,8 @@ data class ExportBundle(
     val pdf: File,
     val report: File,
     val original: File? = null,
-    val originalLayoutDocx: File? = null
+    val originalLayoutDocx: File? = null,
+    val originalLayoutIsFinal: Boolean = false
 )
 
 class DocumentExporter(
@@ -57,15 +58,22 @@ class DocumentExporter(
                 File(output, "${baseName}_原文件备份.${source.extension.ifBlank { "bin" }}")
                     .also { source.copyTo(it, overwrite = true) }
             }
-        val originalLayoutDocx = project.localResumePath
+        val layoutSource = project.localResumePath
             ?.let(::File)
             ?.takeIf { it.isFile && it.extension.equals("docx", ignoreCase = true) }
-            ?.let { source ->
+        val layoutIsFinal = layoutSource != null && project.layoutRevision.isNotEmpty()
+        val originalLayoutDocx = layoutSource?.let { source ->
+            if (layoutIsFinal) {
+                File(output, "${baseName}_原版式修订稿.docx").also { target ->
+                    DocxLayoutEditor.apply(source, project.layoutRevision, target)
+                }
+            } else {
                 File(output, "${baseName}_原版式对照稿.docx").apply {
                     writeBytes(createOriginalLayoutDocx(source, sections))
                 }
             }
-        ExportBundle(docx, pdf, report, original, originalLayoutDocx)
+        }
+        ExportBundle(docx, pdf, report, original, originalLayoutDocx, layoutIsFinal)
     }
 
     private fun createDocx(project: ResumeProject, sections: List<DraftSection>): ByteArray {
@@ -273,6 +281,15 @@ class DocumentExporter(
                 appendLine()
                 appendLine("第二模型审核${project.secondReviewProvider.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty()}")
                 project.secondReviewFindings.forEach { appendLine("- ${sanitize(it)}") }
+            }
+            if (project.layoutRevision.isNotEmpty()) {
+                appendLine()
+                appendLine("原 DOCX 逐段修改")
+                project.layoutRevision.forEach {
+                    appendLine("- 第 ${it.index} 段：${sanitize(it.original)}")
+                    appendLine("  改为：${sanitize(it.revised)}")
+                    if (it.reason.isNotBlank()) appendLine("  原因：${sanitize(it.reason)}")
+                }
             }
             appendLine()
             appendLine("本次改写章节")

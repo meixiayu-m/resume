@@ -9,10 +9,13 @@ import com.resumeagent.app.domain.FactAuditResult
 import com.resumeagent.app.domain.FactClaim
 import com.resumeagent.app.domain.FactGuard
 import com.resumeagent.app.domain.OptimizationMode
+import com.resumeagent.app.domain.ParagraphAction
+import com.resumeagent.app.domain.ParagraphRevision
 import com.resumeagent.app.domain.ResumeAnalysis
 import com.resumeagent.app.domain.ResumeProject
 import com.resumeagent.app.domain.SeniorityLevel
 import com.resumeagent.app.domain.TraceabilityEntry
+import com.resumeagent.app.export.DocxParagraph
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -158,6 +161,47 @@ ${sections.joinToString("\n\n") { "章节：${it.title}\n${it.content}\n原文�
                 findings.optString(index).trim()
                     .takeIf { it.isNotBlank() && !identityQuestion.containsMatchIn(it) }
                     ?.let(::add)
+            }
+        }
+    }
+
+    suspend fun rewriteLayout(
+        project: ResumeProject,
+        paragraphs: List<DocxParagraph>
+    ): List<ParagraphRevision> {
+        val response = complete(
+            kind = RequestKind.TEXT,
+            systemPrompt = LAYOUT_REWRITE_PROMPT,
+            userContent = """
+${buildProjectContext(project, project.factLedger)}
+
+原 DOCX 可编辑段落：
+${paragraphs.joinToString("\n") { "[P${it.index}] ${it.text}" }}
+""".trimIndent()
+        )
+        val json = AiResultParser.objectFrom(response)
+        val edits = json.optJSONArray("paragraphs") ?: JSONArray()
+        val sourceByIndex = paragraphs.associateBy { it.index }
+        return buildList {
+            for (position in 0 until edits.length()) {
+                val item = edits.optJSONObject(position) ?: continue
+                val index = item.optInt("index")
+                val source = sourceByIndex[index] ?: continue
+                val action = runCatching { ParagraphAction.valueOf(item.optString("action")) }
+                    .getOrDefault(ParagraphAction.KEEP)
+                if (action != ParagraphAction.CHANGE) continue
+                val revised = FactGuard.sanitize(item.optString("revised"))
+                if (revised.isBlank()) continue
+                add(
+                    ParagraphRevision(
+                        index = index,
+                        original = source.text,
+                        revised = revised,
+                        action = action,
+                        reason = FactGuard.sanitize(item.optString("reason")),
+                        benefit = FactGuard.sanitize(item.optString("benefit"))
+                    )
+                )
             }
         }
     }
@@ -439,6 +483,7 @@ ${ledger.ifBlank { "事实账本为空。不得自行补充事实。" }}
 7. 不得建议添加原简历没有依据的数字、职级、团队规模、项目归属或成果。
 8. 输出不使用 emoji 和感叹号。
 9. 不要把出生日期、年龄、性别、婚育、民族、身份证号、邮箱、手机号、住址和照片列为需要客户核实的内容。它们是联系方式或身份信息，除非同一份材料内存在明显矛盾，否则不进入 missingQuestions、clientQuestionMessage 或 riskWarnings。
+10. 检查章节顺序是否合理，并在 recommendedSectionOrder 中给出简短的推荐顺序。建议必须说明为什么，但原版式修订会保留原顺序。
 """.trimIndent()
 
         private val ANALYSIS_TARGETED_INSTRUCTION = """
@@ -469,6 +514,8 @@ ${ledger.ifBlank { "事实账本为空。不得自行补充事实。" }}
   "missingQuestions": ["3到6个通俗、独立、客户通常能回答的问题"],
   "jobKeywords": ["仅按当前模式规则返回"],
   "clientQuestionMessage": "可直接发给客户的真人沟通消息",
+  "recommendedSectionOrder": ["建议的章节顺序，如个人简介、工作经历、项目经历、教育经历"],
+  "sectionOrderAdvice": "一到两句话说明为什么建议这个顺序；原版式修订不会自动移动章节",
   "riskWarnings": ["时间线、职级、真实性、ATS可读性等风险"]
 }
 """.trimIndent()
@@ -508,6 +555,7 @@ ${ledger.ifBlank { "事实账本为空。不得自行补充事实。" }}
 每个 section 都要在 sourceEvidence 中给出对应的原简历短句；纯章节标题可以留空。
 verificationChecklist 必须列出所有仍可能被误读、被夸大或需要客户确认的事实。
 traceability 必须为每一句包含数字、职责边界或成果的修订表述给出来源。
+changeNote 最多两句话，只说明这次为什么改；benefit 最多一句话，只说明具体收益。不要把长分析放进这两个字段。
 
 只返回 JSON，不要 Markdown：
 {
@@ -551,6 +599,22 @@ traceability 必须为每一句包含数字、职责边界或成果的修订表�
 {"findings":["具体问题，指出修订表述并要求客户核实"]}
 
 如果未发现问题，findings 返回空数组。不能替改写稿补造证据，不使用 emoji 或感叹号。
+""".trimIndent()
+
+        private val LAYOUT_REWRITE_PROMPT = """
+你是原 Word 简历的逐段文字编辑。必须保留客户原来的章节顺序和版式，只对需要修改的段落给出替换文本。
+
+规则：
+1. 只能使用输入简历、客户补充和事实账本中存在的事实。
+2. 不编造数字、职级、团队规模、项目归属、成果或技能。
+3. 不把参与、协助、配合升级为主导、负责、牵头、独立完成。
+4. 每个段落只做调整语序、删除空话和正式化表达。
+5. 不需要改的段落不要返回。
+6. 原版式模式只替换文字，不删除整个段落。需要删除内容时在重新排版模式处理。
+7. reason 最多两句话，benefit 最多一句话。
+
+只返回 JSON：
+{"paragraphs":[{"index":1,"action":"CHANGE","revised":"修改后的段落文字","reason":"为什么改","benefit":"具体收益"}]}
 """.trimIndent()
 
         private val OCR_SYSTEM_PROMPT = """

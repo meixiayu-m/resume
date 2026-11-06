@@ -15,6 +15,7 @@ import com.resumeagent.app.domain.AiProviderSettings
 import com.resumeagent.app.domain.AiSettings
 import com.resumeagent.app.domain.AiModelInfo
 import com.resumeagent.app.domain.DraftSection
+import com.resumeagent.app.domain.FactGuard
 import com.resumeagent.app.domain.OptimizationMode
 import com.resumeagent.app.domain.ProjectStage
 import com.resumeagent.app.domain.ProjectInput
@@ -22,6 +23,7 @@ import com.resumeagent.app.domain.ProjectVersion
 import com.resumeagent.app.domain.ResumeProject
 import com.resumeagent.app.domain.RuleChecker
 import com.resumeagent.app.export.DocumentExporter
+import com.resumeagent.app.export.DocxLayoutEditor
 import com.resumeagent.app.export.ExportBundle
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,6 +48,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val aiClient = AiClient(secureSettings)
     private val importer = DocumentImporter(application, aiClient, store)
     private val exporter = DocumentExporter(application, store)
+    private val layoutEditor = DocxLayoutEditor
     private val _state = MutableStateFlow(MainUiState())
     private val deletingProjectIds = mutableSetOf<String>()
     val state: StateFlow<MainUiState> = _state.asStateFlow()
@@ -185,6 +188,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 draftSections = emptyList(),
                 verificationChecklist = emptyList(),
                 traceability = emptyList(),
+                layoutRevision = emptyList(),
                 secondReviewFindings = emptyList(),
                 stage = ProjectStage.IMPORTED,
                 updatedAt = System.currentTimeMillis()
@@ -206,6 +210,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 draftSections = emptyList(),
                 verificationChecklist = emptyList(),
                 traceability = emptyList(),
+                layoutRevision = emptyList(),
                 secondReviewFindings = emptyList(),
                 stage = ProjectStage.IMPORTED,
                 updatedAt = System.currentTimeMillis()
@@ -242,7 +247,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ruleChecks = if (contentChanged) emptyList() else project.ruleChecks,
             secondReviewFindings = if (contentChanged) emptyList() else project.secondReviewFindings,
             stage = if (contentChanged) ProjectStage.IMPORTED else project.stage,
-            updatedAt = System.currentTimeMillis()
+            updatedAt = System.currentTimeMillis(),
+            layoutRevision = emptyList()
         )
         persist(updated, message = null)
     }
@@ -255,6 +261,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val project = _state.value.selectedProject ?: return
         if (project.id in deletingProjectIds) return
         val clean = input.normalized()
+        val materialChanged = project.resumeText != clean.resumeText.trim() ||
+            project.jobDescription != clean.jobDescription.trim() ||
+            project.supplements != clean.supplements.trim() ||
+            project.optimizationMode != clean.optimizationMode
         val updated = project.copy(
             title = clean.title.trim().ifBlank { clean.targetRole.trim().ifBlank { project.title } },
             clientName = clean.clientName.trim(),
@@ -268,6 +278,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             resumeText = clean.resumeText.trim(),
             jobDescription = clean.jobDescription.trim(),
             supplements = clean.supplements.trim(),
+            layoutRevision = if (materialChanged) emptyList() else project.layoutRevision,
             updatedAt = System.currentTimeMillis()
         )
         if (updated != project) persist(updated, message = null)
@@ -280,6 +291,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         persist(
             project.copy(
                 supplements = value.trim(),
+                layoutRevision = emptyList(),
                 updatedAt = System.currentTimeMillis()
             ),
             message = null
@@ -312,6 +324,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 draftSections = emptyList(),
                 verificationChecklist = emptyList(),
                 traceability = emptyList(),
+                layoutRevision = emptyList(),
                 secondReviewFindings = emptyList(),
                 stage = ProjectStage.ANALYZED,
                 updatedAt = System.currentTimeMillis()
@@ -366,6 +379,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 draftSections = emptyList(),
                 verificationChecklist = emptyList(),
                 traceability = emptyList(),
+                layoutRevision = emptyList(),
                 secondReviewFindings = emptyList(),
                 stage = ProjectStage.ANALYZED,
                 updatedAt = System.currentTimeMillis()
@@ -379,6 +393,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val project = _state.value.selectedProject ?: return
         val updated = project.copy(
             supplements = value.trim(),
+            layoutRevision = emptyList(),
             updatedAt = System.currentTimeMillis()
         )
         persist(updated, message = null)
@@ -449,6 +464,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             traceability = version.traceability,
             secondReviewFindings = version.secondReviewFindings,
             secondReviewProvider = version.secondReviewProvider,
+            layoutRevision = version.layoutRevision,
             stage = ProjectStage.DRAFTED,
             updatedAt = System.currentTimeMillis()
         )
@@ -469,6 +485,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             traceability = version.traceability,
             secondReviewFindings = version.secondReviewFindings,
             secondReviewProvider = version.secondReviewProvider,
+            layoutRevision = version.layoutRevision,
             stage = ProjectStage.DRAFTED,
             updatedAt = System.currentTimeMillis()
         )
@@ -486,7 +503,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             draftSections = project.draftSections.map {
                 if (it.id == sectionId) it.copy(content = content) else it
             },
-            updatedAt = System.currentTimeMillis()
+            updatedAt = System.currentTimeMillis(),
+            layoutRevision = emptyList()
         )
         persist(syncActiveVersion(updated), message = null)
     }
@@ -504,9 +522,98 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     it
                 }
             },
-            updatedAt = System.currentTimeMillis()
+            updatedAt = System.currentTimeMillis(),
+            layoutRevision = emptyList()
         )
         persist(syncActiveVersion(updated), message = null)
+    }
+
+    fun applySuggestedSectionOrder() {
+        val project = _state.value.selectedProject ?: return
+        val suggested = project.analysis?.recommendedSectionOrder.orEmpty()
+        if (suggested.isEmpty() || project.draftSections.isEmpty()) return
+        val originalIndex = project.draftSections.withIndex().associate { it.value.id to it.index }
+        val reordered = project.draftSections.sortedWith(
+            compareBy(
+                {
+                    suggested.indexOfFirst { name ->
+                        it.title.contains(name, ignoreCase = true) ||
+                            name.contains(it.title, ignoreCase = true)
+                    }.takeIf { index -> index >= 0 } ?: Int.MAX_VALUE
+                },
+                { originalIndex[it.id] ?: Int.MAX_VALUE }
+            )
+        )
+        persist(
+            syncActiveVersion(
+                project.copy(
+                    draftSections = reordered,
+                    updatedAt = System.currentTimeMillis(),
+                    layoutRevision = emptyList()
+                )
+            ),
+            null
+        )
+    }
+
+    fun prepareOriginalLayoutRevision() {
+        val project = _state.value.selectedProject ?: return
+        if (project.activeVersionId != null && project.activeVersionId == project.finalVersionId) {
+            showError("最终版已锁定，请先在版本历史中取消最终锁定")
+            return
+        }
+        val source = project.localResumePath?.let(::java.io.File)
+        if (source == null || !source.isFile || !source.extension.equals("docx", ignoreCase = true)) {
+            showError("原版式修订只支持 DOCX。PDF 或图片请使用重新排版版本")
+            return
+        }
+        if (!hasApiKey()) {
+            showError("请先在设置中填写 API Key")
+            return
+        }
+        runJob("正在逐段准备原 DOCX 修订…") {
+            val paragraphs = layoutEditor.extractParagraphs(source)
+            val rawEdits = aiClient.rewriteLayout(project, paragraphs)
+            val candidates = rawEdits.map {
+                DraftSection(
+                    title = "P${it.index}",
+                    content = it.revised,
+                    originalContent = it.original,
+                    sourceEvidence = it.original
+                )
+            }
+            val audited = FactGuard.audit(project, candidates, emptyList(), emptyList())
+            val acceptedIndexes = audited.sections
+                .filter { it.accepted }
+                .mapNotNull { it.title.removePrefix("P").toIntOrNull() }
+                .toSet()
+            val safeEdits = rawEdits.filter { it.index in acceptedIndexes }
+            val updated = syncActiveVersion(
+                project.copy(
+                    layoutRevision = safeEdits,
+                    verificationChecklist = (
+                        project.verificationChecklist + audited.verificationChecklist
+                    ).distinct(),
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+            store.save(updated)
+            loadProjectsAndSelect(updated)
+        }
+    }
+
+    fun removeLayoutRevision(index: Int) {
+        val project = _state.value.selectedProject ?: return
+        if (project.activeVersionId != null && project.activeVersionId == project.finalVersionId) return
+        persist(
+            syncActiveVersion(
+                project.copy(
+                    layoutRevision = project.layoutRevision.filterNot { it.index == index },
+                    updatedAt = System.currentTimeMillis()
+                )
+            ),
+            null
+        )
     }
 
     fun moveSection(sectionId: String, delta: Int) {
@@ -519,7 +626,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sections.add(target, item)
         persist(
             syncActiveVersion(
-                project.copy(draftSections = sections, updatedAt = System.currentTimeMillis())
+                project.copy(
+                    draftSections = sections,
+                    updatedAt = System.currentTimeMillis(),
+                    layoutRevision = emptyList()
+                )
             ),
             null
         )
@@ -609,6 +720,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 traceability = audit.traceability,
                 secondReviewFindings = emptyList(),
                 secondReviewProvider = "",
+                layoutRevision = emptyList(),
                 stage = ProjectStage.DRAFTED,
                 updatedAt = System.currentTimeMillis()
             ),
@@ -646,7 +758,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             verificationChecklist = project.verificationChecklist,
             traceability = project.traceability,
             secondReviewFindings = project.secondReviewFindings,
-            secondReviewProvider = project.secondReviewProvider
+            secondReviewProvider = project.secondReviewProvider,
+            layoutRevision = project.layoutRevision
         )
         return project.copy(
             versions = project.versions + version,
@@ -666,7 +779,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             verificationChecklist = project.verificationChecklist,
             traceability = project.traceability,
             secondReviewFindings = project.secondReviewFindings,
-            secondReviewProvider = project.secondReviewProvider
+            secondReviewProvider = project.secondReviewProvider,
+            layoutRevision = project.layoutRevision
         )
         val migrated = project.copy(versions = listOf(version), activeVersionId = version.id)
         store.save(migrated)
@@ -688,7 +802,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         verificationChecklist = project.verificationChecklist,
                         traceability = project.traceability,
                         secondReviewFindings = project.secondReviewFindings,
-                        secondReviewProvider = project.secondReviewProvider
+                        secondReviewProvider = project.secondReviewProvider,
+                        layoutRevision = project.layoutRevision
                     )
                 }
             }
