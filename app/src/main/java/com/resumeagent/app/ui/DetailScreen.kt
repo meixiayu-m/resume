@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -108,6 +109,7 @@ import java.util.Locale
 private const val TAB_SOURCE = "source"
 private const val TAB_ANALYSIS = "analysis"
 private const val TAB_REWRITE = "rewrite"
+private const val TAB_PREVIEW = "preview"
 private const val TAB_LAYOUT = "layout"
 private const val TAB_VERSIONS = "versions"
 private const val TAB_EXPORT = "export"
@@ -202,6 +204,7 @@ fun DetailScreen(
                     viewModel = viewModel,
                     onExport = { tab = TAB_EXPORT }
                 )
+                TAB_PREVIEW -> FullPreviewTab(project = project)
                 TAB_LAYOUT -> OriginalLayoutTab(
                     project = project,
                     viewModel = viewModel,
@@ -338,6 +341,7 @@ private fun WorkTabs(
         WorkTab("原简历", selected == TAB_SOURCE) { onSelect(TAB_SOURCE) }
         WorkTab("诊断", selected == TAB_ANALYSIS, enabled = hasAnalysis) { onSelect(TAB_ANALYSIS) }
         WorkTab("改写审核", selected == TAB_REWRITE, enabled = hasDraft) { onSelect(TAB_REWRITE) }
+        WorkTab("完整预览", selected == TAB_PREVIEW, enabled = hasDraft) { onSelect(TAB_PREVIEW) }
         WorkTab("原版式修订", selected == TAB_LAYOUT, enabled = hasDraft) { onSelect(TAB_LAYOUT) }
         WorkTab("版本历史", selected == TAB_VERSIONS, enabled = hasDraft) { onSelect(TAB_VERSIONS) }
         WorkTab("导出", selected == TAB_EXPORT, enabled = hasDraft) { onSelect(TAB_EXPORT) }
@@ -1451,6 +1455,107 @@ private fun FactAuditCard(project: ResumeProject) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun FullPreviewTab(project: ResumeProject) {
+    val context = LocalContext.current
+    val sections = project.acceptedSections
+    val fullText = buildString {
+        appendLine(project.targetRole.ifBlank { "简历" })
+        if (project.company.isNotBlank()) appendLine(project.company)
+        sections.forEach { section ->
+            appendLine()
+            appendLine(section.title)
+            appendLine(section.content)
+        }
+    }.trim()
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item {
+            Surface(
+                color = Color(0xFFFFF1D8),
+                shape = RoundedCornerShape(13.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("完整内容预览", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(
+                        "这里按最终采用状态合并所有章节。手机高度与实际 A4 分页不同，导出前仍应检查 Word 或 PDF 的分页。",
+                        color = Color(0xFF77551B),
+                        fontSize = 11.sp,
+                        lineHeight = 17.sp
+                    )
+                    if (project.layoutRevision.isNotEmpty()) {
+                        Text(
+                            "原版式修订稿会在此基础上保留原 Word 模板；本页显示的是文字内容。",
+                            color = Moss,
+                            fontSize = 11.sp,
+                            lineHeight = 17.sp
+                        )
+                    }
+                }
+            }
+        }
+        if (sections.isEmpty()) {
+            item {
+                EmptyTab("没有可预览的内容", "回到改写审核页，至少采用一个章节。")
+            }
+        } else {
+            item {
+                Surface(
+                    color = Color.White,
+                    shape = RoundedCornerShape(8.dp),
+                    shadowElevation = 3.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    SelectionContainer {
+                        Column(
+                            Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                project.targetRole.ifBlank { "简历" },
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (project.company.isNotBlank()) {
+                                Text(project.company, color = Muted, fontSize = 13.sp)
+                            }
+                            HorizontalDivider(color = Line)
+                            sections.forEach { section ->
+                                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Text(
+                                        section.title,
+                                        color = Moss,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        section.content,
+                                        fontSize = 13.sp,
+                                        lineHeight = 21.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                OutlinedButton(
+                    onClick = { copyText(context, "简历完整预览", fullText) },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("复制完整文字")
+                }
+            }
+        }
+        item { Spacer(Modifier.height(20.dp)) }
     }
 }
 

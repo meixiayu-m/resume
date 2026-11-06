@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
 data class MainUiState(
     val projects: List<ResumeProject> = emptyList(),
@@ -562,7 +563,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             showError("最终版已锁定，请先在版本历史中取消最终锁定")
             return
         }
-        val source = project.localResumePath?.let(::java.io.File)
+        val source = project.localResumePath?.let(::File)
         if (source == null || !source.isFile || !source.extension.equals("docx", ignoreCase = true)) {
             showError("原版式修订只支持 DOCX。PDF 或图片请使用重新排版版本")
             return
