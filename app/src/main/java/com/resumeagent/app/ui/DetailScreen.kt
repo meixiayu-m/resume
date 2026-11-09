@@ -89,6 +89,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.resumeagent.app.domain.DraftSection
+import com.resumeagent.app.domain.ClientAddressStyle
+import com.resumeagent.app.domain.ClientMessageFormatter
 import com.resumeagent.app.domain.DiffKind
 import com.resumeagent.app.domain.IssueSeverity
 import com.resumeagent.app.domain.OptimizationMode
@@ -384,6 +386,9 @@ private fun SourceTab(project: ResumeProject, viewModel: MainViewModel) {
     var orderNote by rememberSaveable(project.id, project.stage, project.resumeFileName) {
         mutableStateOf(project.orderNote)
     }
+    var clientAddressStyleName by rememberSaveable(project.id, project.stage) {
+        mutableStateOf(project.clientAddressStyle.name)
+    }
     var modeName by rememberSaveable(project.id, project.stage) {
         mutableStateOf(project.optimizationMode.name)
     }
@@ -426,6 +431,7 @@ private fun SourceTab(project: ResumeProject, viewModel: MainViewModel) {
         clientName = clientName,
         dueDate = dueDate,
         orderNote = orderNote,
+        clientAddressStyle = ClientAddressStyle.valueOf(clientAddressStyleName),
         targetRole = targetRole,
         company = company,
         industry = industry,
@@ -445,6 +451,7 @@ private fun SourceTab(project: ResumeProject, viewModel: MainViewModel) {
         clientName,
         dueDate,
         orderNote,
+        clientAddressStyleName,
         modeName,
         seniorityName,
         targetRole,
@@ -483,7 +490,11 @@ private fun SourceTab(project: ResumeProject, viewModel: MainViewModel) {
         item {
             FormSection("接单信息") {
                 DetailTextField("任务名称", title, { title = it })
-                DetailTextField("客户称呼", clientName, { clientName = it }, "仅保存在本机")
+                DetailTextField("客户姓名或称呼", clientName, { clientName = it }, "例如：李明、李同学")
+                ClientAddressSelector(
+                    selected = ClientAddressStyle.valueOf(clientAddressStyleName),
+                    onSelect = { clientAddressStyleName = it.name }
+                )
                 DetailTextField("交付日期", dueDate, { dueDate = it }, "例如：2026-11-10")
                 DetailTextField("订单备注", orderNote, { orderNote = it }, "例如：重点核对项目管理经历", minLines = 2)
             }
@@ -660,6 +671,7 @@ private fun AnalysisTab(
         EmptyTab("还没有诊断结果", "回到“原简历”页，保存材料并开始诊断。")
         return
     }
+    var showFullQuestionMessage by rememberSaveable(project.id) { mutableStateOf(false) }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
@@ -797,12 +809,20 @@ private fun AnalysisTab(
             item {
                 AnalysisSection("需要向候选人确认") {
                     Text(
-                        "可以直接把下面的话发给客户。问题只围绕具体经历，避免让对方感觉是在填表。",
+                        "默认最多发送最关键的 3 个问题，其他核实点保留在下方。",
                         color = Muted,
                         fontSize = 12.sp,
                         lineHeight = 18.sp
                     )
-                    val clientMessage = clientMessageFor(analysis)
+                    val clientMessage = ClientMessageFormatter.build(
+                        project = project,
+                        analysis = analysis,
+                        questionLimit = if (showFullQuestionMessage) {
+                            ClientMessageFormatter.FULL_QUESTION_LIMIT
+                        } else {
+                            ClientMessageFormatter.SHORT_QUESTION_LIMIT
+                        }
+                    )
                     Surface(
                         color = Color(0xFFF0F5F2),
                         shape = RoundedCornerShape(12.dp),
@@ -822,7 +842,21 @@ private fun AnalysisTab(
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("复制给客户的消息")
+                        Text(if (showFullQuestionMessage) "复制完整版消息" else "复制简短版消息")
+                    }
+                    if (analysis.missingQuestions.size > ClientMessageFormatter.SHORT_QUESTION_LIMIT) {
+                        TextButton(
+                            onClick = { showFullQuestionMessage = !showFullQuestionMessage },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                if (showFullQuestionMessage) {
+                                    "只看简短版"
+                                } else {
+                                    "查看完整版（${analysis.missingQuestions.size} 个问题）"
+                                }
+                            )
+                        }
                     }
                     HorizontalDivider(color = Line)
                     Text("内部核实点", fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -2114,21 +2148,4 @@ private fun shareFiles(context: Context, files: List<File>) {
 private fun copyText(context: Context, label: String, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
-}
-
-private fun clientMessageFor(analysis: ResumeAnalysis): String {
-    val questions = analysis.missingQuestions
-        .take(6)
-        .mapIndexed { index, question ->
-            "${index + 1}. ${question.trim().removeSuffix("。")}。"
-        }
-        .joinToString("\n")
-    if (questions.isBlank()) return analysis.clientQuestionMessage
-    return """
-        您好，您的简历我已经看过了，想跟您确认几个地方，主要是避免修改时把您的工作内容和成果写偏。
-
-        $questions
-
-        您可以按编号直接回复，记不清的地方写“不确定”，或者告诉我大概情况也可以，不用勉强补充。
-    """.trimIndent()
 }

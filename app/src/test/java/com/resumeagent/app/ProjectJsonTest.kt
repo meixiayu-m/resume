@@ -2,6 +2,7 @@ package com.resumeagent.app
 
 import com.resumeagent.app.data.ProjectJson
 import com.resumeagent.app.domain.DraftSection
+import com.resumeagent.app.domain.ClientAddressStyle
 import com.resumeagent.app.domain.FactClaim
 import com.resumeagent.app.domain.OptimizationMode
 import com.resumeagent.app.domain.ParagraphRevision
@@ -25,6 +26,7 @@ class ProjectJsonTest {
             jobDescription = "负责需求分析。",
             optimizationMode = OptimizationMode.TARGETED,
             seniorityLevel = SeniorityLevel.MID,
+            clientAddressStyle = ClientAddressStyle.FORMAL,
             analysis = ResumeAnalysis(
                 overallScore = 80,
                 fitSummary = "经历相关",
@@ -33,6 +35,8 @@ class ProjectJsonTest {
                 issues = emptyList(),
                 missingQuestions = emptyList(),
                 jobKeywords = emptyList(),
+                clientQuestionIntro = "项目信息还需要确认。",
+                clientQuestionClosing = "按编号回复即可。",
                 shouldReorderSections = true,
                 recommendedSectionOrder = listOf("项目经历", "工作经历"),
                 sectionOrderAdvice = "岗位项目经验被放得过后。"
@@ -87,6 +91,8 @@ class ProjectJsonTest {
         assertTrue(decoded.analysis?.shouldReorderSections == true)
         assertEquals(listOf("项目经历", "工作经历"), decoded.analysis?.recommendedSectionOrder)
         assertEquals(SeniorityLevel.MID, decoded.seniorityLevel)
+        assertEquals(ClientAddressStyle.FORMAL, decoded.clientAddressStyle)
+        assertEquals("项目信息还需要确认。", decoded.analysis?.clientQuestionIntro)
         assertEquals("参与需求分析。", decoded.factLedger.single().quote)
         assertEquals("缺少联系方式", decoded.ruleChecks.single().detail)
         assertEquals("V1", decoded.versions.single().label)

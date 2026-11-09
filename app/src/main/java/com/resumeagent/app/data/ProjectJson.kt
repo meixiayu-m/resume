@@ -1,6 +1,7 @@
 package com.resumeagent.app.data
 
 import com.resumeagent.app.domain.DraftSection
+import com.resumeagent.app.domain.ClientAddressStyle
 import com.resumeagent.app.domain.FactClaim
 import com.resumeagent.app.domain.IssueSeverity
 import com.resumeagent.app.domain.OptimizationMode
@@ -28,6 +29,7 @@ object ProjectJson {
         .put("clientName", project.clientName)
         .put("dueDate", project.dueDate)
         .put("orderNote", project.orderNote)
+        .put("clientAddressStyle", project.clientAddressStyle.name)
         .put("optimizationMode", project.optimizationMode.name)
         .put("seniorityLevel", project.seniorityLevel.name)
         .put("resumeFileName", project.resumeFileName)
@@ -78,6 +80,8 @@ object ProjectJson {
             clientName = json.optString("clientName"),
             dueDate = json.optString("dueDate"),
             orderNote = json.optString("orderNote"),
+            clientAddressStyle = json.optString("clientAddressStyle")
+                .toEnum(ClientAddressStyle.AUTO),
             optimizationMode = json.optString("optimizationMode")
                 .toEnum(OptimizationMode.TARGETED),
             seniorityLevel = json.optString("seniorityLevel")
@@ -134,6 +138,8 @@ object ProjectJson {
         .put("missingQuestions", JSONArray(analysis.missingQuestions))
         .put("jobKeywords", JSONArray(analysis.jobKeywords))
         .put("clientQuestionMessage", analysis.clientQuestionMessage)
+        .put("clientQuestionIntro", analysis.clientQuestionIntro)
+        .put("clientQuestionClosing", analysis.clientQuestionClosing)
         .put("shouldReorderSections", analysis.shouldReorderSections)
         .put("recommendedSectionOrder", JSONArray(analysis.recommendedSectionOrder))
         .put("sectionOrderAdvice", analysis.sectionOrderAdvice)
@@ -162,6 +168,8 @@ object ProjectJson {
         missingQuestions = json.optJSONArray("missingQuestions").toStringList(),
         jobKeywords = json.optJSONArray("jobKeywords").toStringList(),
         clientQuestionMessage = json.optString("clientQuestionMessage"),
+        clientQuestionIntro = json.optString("clientQuestionIntro"),
+        clientQuestionClosing = json.optString("clientQuestionClosing"),
         shouldReorderSections = json.optBoolean("shouldReorderSections"),
         recommendedSectionOrder = json.optJSONArray("recommendedSectionOrder").toStringList(),
         sectionOrderAdvice = json.optString("sectionOrderAdvice"),

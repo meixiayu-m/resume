@@ -88,6 +88,7 @@ import com.resumeagent.app.domain.AiProviderId
 import com.resumeagent.app.domain.AiProviderSettings
 import com.resumeagent.app.domain.AiSettings
 import com.resumeagent.app.domain.AiModelInfo
+import com.resumeagent.app.domain.ClientAddressStyle
 import com.resumeagent.app.domain.OptimizationMode
 import com.resumeagent.app.domain.ProjectStage
 import com.resumeagent.app.domain.ProjectInput
@@ -482,6 +483,9 @@ private fun NewProjectScreen(
     var clientName by rememberSaveable { mutableStateOf("") }
     var dueDate by rememberSaveable { mutableStateOf("") }
     var orderNote by rememberSaveable { mutableStateOf("") }
+    var clientAddressStyleName by rememberSaveable {
+        mutableStateOf(ClientAddressStyle.AUTO.name)
+    }
     var modeName by rememberSaveable { mutableStateOf(OptimizationMode.TARGETED.name) }
     var seniorityName by rememberSaveable { mutableStateOf(SeniorityLevel.AUTO.name) }
     var resumeText by rememberSaveable { mutableStateOf("") }
@@ -574,7 +578,11 @@ private fun NewProjectScreen(
             }
             item {
                 FormSection("接单信息") {
-                    ResumeTextField("客户称呼", clientName, { clientName = it }, "仅用于本机区分订单")
+                    ResumeTextField("客户姓名或称呼", clientName, { clientName = it }, "例如：李明、李同学")
+                    ClientAddressSelector(
+                        selected = ClientAddressStyle.valueOf(clientAddressStyleName),
+                        onSelect = { clientAddressStyleName = it.name }
+                    )
                     ResumeTextField("交付日期", dueDate, { dueDate = it }, "例如：2026-11-10")
                     ResumeTextField(
                         "订单备注",
@@ -671,6 +679,7 @@ private fun NewProjectScreen(
                                 clientName = clientName,
                                 dueDate = dueDate,
                                 orderNote = orderNote,
+                                clientAddressStyle = ClientAddressStyle.valueOf(clientAddressStyleName),
                                 targetRole = targetRole,
                                 company = company,
                                 industry = industry,
@@ -1207,6 +1216,43 @@ internal fun SenioritySelector(selected: SeniorityLevel, onSelect: (SeniorityLev
             )
         }
     }
+}
+
+@Composable
+internal fun ClientAddressSelector(
+    selected: ClientAddressStyle,
+    onSelect: (ClientAddressStyle) -> Unit
+) {
+    Text("客户沟通称呼", color = Muted, fontSize = 12.sp)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        ClientAddressStyle.entries.forEach { style ->
+            FilterChip(
+                selected = selected == style,
+                onClick = { onSelect(style) },
+                label = {
+                    Text(
+                        when (style) {
+                            ClientAddressStyle.AUTO -> "自动"
+                            ClientAddressStyle.STUDENT -> "同学"
+                            ClientAddressStyle.INFORMAL -> "直接称呼"
+                            ClientAddressStyle.FORMAL -> "正式"
+                        }
+                    )
+                }
+            )
+        }
+    }
+    Text(
+        "自动模式按目标职级选择称呼，也可在这个任务里固定设置。",
+        color = Muted,
+        fontSize = 11.sp,
+        lineHeight = 16.sp
+    )
 }
 
 @Composable

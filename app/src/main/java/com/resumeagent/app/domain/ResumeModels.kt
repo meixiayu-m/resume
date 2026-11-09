@@ -25,6 +25,13 @@ enum class SeniorityLevel {
     MANAGER
 }
 
+enum class ClientAddressStyle {
+    AUTO,
+    STUDENT,
+    INFORMAL,
+    FORMAL
+}
+
 enum class IssueSeverity {
     CRITICAL,
     WARNING,
@@ -53,6 +60,8 @@ data class ResumeAnalysis(
     val missingQuestions: List<String>,
     val jobKeywords: List<String>,
     val clientQuestionMessage: String = "",
+    val clientQuestionIntro: String = "",
+    val clientQuestionClosing: String = "",
     val shouldReorderSections: Boolean = false,
     val recommendedSectionOrder: List<String> = emptyList(),
     val sectionOrderAdvice: String = "",
@@ -129,6 +138,7 @@ data class ProjectInput(
     val clientName: String = "",
     val dueDate: String = "",
     val orderNote: String = "",
+    val clientAddressStyle: ClientAddressStyle = ClientAddressStyle.AUTO,
     val targetRole: String = "",
     val company: String = "",
     val industry: String = "",
@@ -148,6 +158,7 @@ data class ResumeProject(
     val clientName: String = "",
     val dueDate: String = "",
     val orderNote: String = "",
+    val clientAddressStyle: ClientAddressStyle = ClientAddressStyle.AUTO,
     val optimizationMode: OptimizationMode = OptimizationMode.TARGETED,
     val seniorityLevel: SeniorityLevel = SeniorityLevel.AUTO,
     val resumeFileName: String = "",

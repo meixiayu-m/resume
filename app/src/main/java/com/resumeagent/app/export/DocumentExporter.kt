@@ -234,7 +234,7 @@ class DocumentExporter(
             appendLine("目标行业：${project.industry.ifBlank { "未填写" }}")
             appendLine("优化方式：${modeLabel(project.optimizationMode)}")
             appendLine("目标职级：${seniorityLabel(project.seniorityLevel)}")
-            if (project.clientName.isNotBlank()) appendLine("客户称呼：${project.clientName}")
+            if (project.clientName.isNotBlank()) appendLine("客户姓名或称呼：${project.clientName}")
             if (project.dueDate.isNotBlank()) appendLine("交付日期：${project.dueDate}")
             if (project.orderNote.isNotBlank()) appendLine("订单备注：${project.orderNote}")
             appendLine()

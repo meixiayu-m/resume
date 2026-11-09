@@ -52,6 +52,8 @@ class AiClient(private val settings: SecureSettings) {
             } else {
                 decoded.jobKeywords
             },
+            clientQuestionIntro = FactGuard.sanitize(decoded.clientQuestionIntro).take(120),
+            clientQuestionClosing = FactGuard.sanitize(decoded.clientQuestionClosing).take(80),
             shouldReorderSections = hasActionableOrderAdvice,
             recommendedSectionOrder = decoded.recommendedSectionOrder.takeIf {
                 hasActionableOrderAdvice
@@ -493,11 +495,11 @@ ${ledger.ifBlank { "事实账本为空。不得自行补充事实。" }}
 2. 每条问题尽量引用原简历中的短句作为 evidence；原文没有证据时明确写“未体现”。
 3. 检查成果证据、表达质量、结构可读性、时间线、职级一致性和事实可信度。
 4. 问题要具体可执行，不能只写“优化表达”“突出亮点”。
-5. missingQuestions 最多 6 个，只问客户本人通常能回答、且会明显影响简历表达的事实。每条只问一件事，用日常语言，不使用“量化成果、数据归因、职责边界、指标颗粒度”等专业术语。每条不要自带数字编号，程序会统一编号。
-6. clientQuestionMessage 是可直接发给候选人的消息，固定采用编号形式 1. 2. 3.，每条一句。先说明已经看过简历，再问具体项目或经历。不要一次追问数字、职责、结果和背景；客户可能不清楚的细节可以用“大概什么量级”“记不清写不确定也可以”来问，不要制造答题压力。
+5. missingQuestions 为 0 至 6 个，只保留会明显影响简历表达、且客户本人通常能回答的事实，不要为了凑数提问。按重要性从高到低排序；每条只问一件事，用日常语言，通常不超过 45 个汉字，不使用“量化成果、数据归因、职责边界、指标颗粒度”等专业术语，不要自带数字编号。问题要直接点出具体项目、经历或原文短语，避免模板化的“请问您当时”。没有需要确认的内容时返回空数组。
+6. clientQuestionIntro 用一句与本次问题相关的开场，不写称呼、不编号、不重复“简历我看过了”一类套话；clientQuestionClosing 用一句简短回复提示，不写称呼、不重复问题。两句话都不使用 emoji 和感叹号，代词尽量省略，由程序按称呼方式统一处理。没有 missingQuestions 时两者都返回空字符串。
 7. 不得建议添加原简历没有依据的数字、职级、团队规模、项目归属或成果。
 8. 输出不使用 emoji 和感叹号。
-9. 不要把出生日期、年龄、性别、婚育、民族、身份证号、邮箱、手机号、住址和照片列为需要客户核实的内容。它们是联系方式或身份信息，除非同一份材料内存在明显矛盾，否则不进入 missingQuestions、clientQuestionMessage 或 riskWarnings。
+9. 不要把出生日期、年龄、性别、婚育、民族、身份证号、邮箱、手机号、住址和照片列为需要客户核实的内容。它们是联系方式或身份信息，除非同一份材料内存在明显矛盾，否则不进入 missingQuestions、clientQuestionIntro、clientQuestionClosing 或 riskWarnings。
 10. 有目标岗位时，只有当前顺序明显埋没岗位最相关的经历、且调整能实质改善阅读重点才建议调整；通用模式只在顺序明显影响可读性时建议。常见顺序或个人偏好不足以构成理由。只有能给出明确理由和完整章节顺序时 shouldReorderSections 才为 true，否则返回 false 并将顺序及理由留空。
 """.trimIndent()
 
@@ -526,9 +528,10 @@ ${ledger.ifBlank { "事实账本为空。不得自行补充事实。" }}
   "issues": [
     {"severity":"CRITICAL或WARNING或INFO","title":"问题标题","evidence":"原文短句或未体现","advice":"具体怎么改，以及需要补充什么事实"}
   ],
-  "missingQuestions": ["3到6个通俗、独立、客户通常能回答的问题"],
+  "missingQuestions": ["0到6个通俗、独立、客户通常能回答且确实影响改写的问题"],
   "jobKeywords": ["仅按当前模式规则返回"],
-  "clientQuestionMessage": "可直接发给客户的真人沟通消息",
+  "clientQuestionIntro": "一句与具体问题相关、不超过45字的开场",
+  "clientQuestionClosing": "一句不超过30字的回复提示",
   "shouldReorderSections": false,
   "recommendedSectionOrder": ["仅在确有必要时列出简历中已有章节的完整新顺序，每个现有章节恰好一次，不得新增章节"],
   "sectionOrderAdvice": "仅在 shouldReorderSections 为 true 时，用一到两句说明当前顺序的问题和调整收益，否则留空",
