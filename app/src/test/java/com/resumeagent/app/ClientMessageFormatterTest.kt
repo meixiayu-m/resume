@@ -19,7 +19,7 @@ class ClientMessageFormatterTest {
             questionLimit = ClientMessageFormatter.SHORT_QUESTION_LIMIT
         )
 
-        assertTrue(message.startsWith("李同学，"))
+        assertTrue(message.startsWith("李明同学，"))
         assertTrue(message.contains("\n\n1. "))
         assertTrue(message.contains("\n3. "))
         assertFalse(message.contains("\n4. "))
